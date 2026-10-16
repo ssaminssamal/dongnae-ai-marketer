@@ -4,3 +4,23 @@ __pycache__/
 *.pyc
 outputs/
 .DS_Store
+
+models/
+
+.runtime/
+.vendor/
+.tools/
+.data/
+*.sqlite3*
+
+# Local credentials, archives and generated media
+.env.*
+!.env.example
+backups/
+.agents/
+*.log
+*.mp4
+*.mp3
+*.wav
+!assets/music/*.wav
+.streamlit/secrets.toml

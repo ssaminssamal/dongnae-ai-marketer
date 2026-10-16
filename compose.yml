@@ -1,0 +1,27 @@
+services:
+  studio:
+    build: .
+    restart: unless-stopped
+    environment:
+      DONGNAE_APP_PASSWORD: ${DONGNAE_APP_PASSWORD:?Set a password with at least 12 characters}
+      RUNWAYML_API_SECRET: ${RUNWAYML_API_SECRET:-}
+    expose: ["8503"]
+    volumes:
+      - studio_outputs:/app/outputs
+      - studio_data:/app/.data
+  https:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      DONGNAE_DOMAIN: ${DONGNAE_DOMAIN:?Set your domain}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [studio]
+volumes:
+  studio_outputs:
+  studio_data:
+  caddy_data:
+  caddy_config:

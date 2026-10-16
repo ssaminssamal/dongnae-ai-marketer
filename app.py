@@ -1,1348 +1,335 @@
 from __future__ import annotations
 
+import hashlib
+import base64
+import json
+import io
+import html
+import os
+from pathlib import Path
+import sys
+if (Path(__file__).resolve().parent/'.vendor').exists():
+    sys.path.insert(0,str(Path(__file__).resolve().parent/'.vendor'))
+
 import streamlit as st
+from config import BUSINESS_TYPES, SUBJECT_TYPES, AREA_TYPES, AD_STYLES, GOALS, RUNWAY_MODELS
+from market_engine import analyze_market, make_ad_copy
+from prompt_engine import build_runway_prompt
+from runway_service import api_key_configured, estimated_cost, generate_image_to_video, save_video
+from tts_service import VOICES, generate_tts, remove_tts_file
+from video_merge import merge_video_bytes
+from report_utils import build_project_report
+from music_catalog import TRACKS, ensure_tracks
+import studio_store as store_db
+from studio_extensions import (sidebar_library, render_management, brand_controls, situation_controls,
+    variant_selector, update_variant, market_controls, campaign_controls, qr_png)
 
-from config import (
-    APP_TITLE,
-    APP_SUBTITLE,
-    BUSINESS_TYPES,
-    SUBJECT_TYPES,
-    AREA_TYPES,
-    AD_STYLES,
-    GOALS,
-    RUNWAY_MODELS,
-)
-
-from market_engine import (
-    analyze_market,
-    make_ad_copy,
-)
-
-from prompt_engine import (
-    build_runway_prompt,
-)
-
-from runway_service import (
-    api_key_configured,
-    estimated_cost,
-    generate_image_to_video,
-    save_video,
-)
-
-from report_utils import (
-    build_project_report,
-)
-
-from video_merge import (
-    merge_video_bytes,
-)
+ROOT = Path(__file__).resolve().parent
+OUTPUTS = ROOT / 'outputs'
+st.set_page_config(page_title='동네AI — 광고 스튜디오', page_icon='◈', layout='wide', initial_sidebar_state='collapsed')
+st.markdown((ROOT / 'studio.css').read_text(encoding='utf-8'), unsafe_allow_html=True)
 
 
-# =========================================================
-# Streamlit 기본 설정
-# =========================================================
-
-st.set_page_config(
-    page_title=APP_TITLE,
-    page_icon="🎬",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+def digest(value):
+    return hashlib.sha256(repr(value).encode()).hexdigest()
 
 
-# =========================================================
-# CSS
-# =========================================================
+def speech_bytes(text, options):
+    identity = digest((text, options))
+    cached = st.session_state.get('studio_speech')
+    if cached and cached['id'] == identity:
+        return cached['bytes']
+    path = None
+    try:
+        path = generate_tts(text, **options)
+        data = Path(path).read_bytes()
+        st.session_state['studio_speech'] = {'id': identity, 'bytes': data}
+        return data
+    finally:
+        if path:
+            remove_tts_file(path)
 
-st.markdown(
-    """
-    <style>
-
-    .block-container {
-        max-width: 1180px;
-        padding-top: 2rem;
-        padding-bottom: 4rem;
-    }
-
-    .hero {
-        padding: 1.4rem 1.5rem;
-        border: 1px solid rgba(128,128,128,.25);
-        border-radius: 18px;
-        margin-bottom: 1.2rem;
-    }
-
-    .hero h1 {
-        margin: 0 0 .35rem 0;
-    }
-
-    .muted {
-        opacity: .72;
-    }
-
-    .result-card {
-        border: 1px solid rgba(128,128,128,.22);
-        border-radius: 14px;
-        padding: 1rem 1.1rem;
-        min-height: 150px;
-    }
-
-    .step {
-        display: inline-block;
-        padding: .25rem .65rem;
-        border-radius: 999px;
-        border: 1px solid rgba(128,128,128,.3);
-        font-size: .85rem;
-        margin-bottom: .5rem;
-    }
-
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-
-# =========================================================
-# Sidebar
-# =========================================================
 
 with st.sidebar:
-
-    st.header("⚙️ 생성 설정")
-
-    model = st.selectbox(
-        "Runway 모델",
-        options=list(RUNWAY_MODELS.keys()),
-        format_func=lambda x: RUNWAY_MODELS[x]["label"],
-    )
-
-    duration = st.select_slider(
-        "영상 길이",
-        options=[5, 10],
-        value=5,
-    )
-
-    cost = estimated_cost(
-        model,
-        duration,
-    )
-
-    st.metric(
-        "예상 생성비(장면 1개)",
-        f"{cost['credits']} credits",
-        f"약 ${cost['usd']:.2f}",
-    )
-
+    st.markdown('<div class="side-brand"><span>◈</span> 동네AI<small>CREATIVE STUDIO</small></div>', unsafe_allow_html=True)
+    section = sidebar_library()
+    st.markdown('<div class="side-label">EXPORT SETTINGS</div>', unsafe_allow_html=True)
+    model = st.selectbox('영상 모델', list(RUNWAY_MODELS), format_func=lambda m: m.replace('_', ' ').title())
+    duration = st.select_slider('장면 길이', [5, 10], value=5, format_func=lambda n: f'{n}초')
+    st.caption('9:16 세로 영상 · MP4 · 24 fps')
     st.divider()
-
-    st.subheader("API 상태")
-
-    if api_key_configured():
-
-        st.success(
-            "Runway API 키 감지됨"
-        )
-
-        st.caption(
-            "크레딧이 있으면 실제 영상 생성이 가능합니다."
-        )
-
-    else:
-
-        st.warning(
-            "Runway API 키 없음"
-        )
-
-        st.caption(
-            "분석과 프롬프트 생성까지만 사용할 수 있습니다."
-        )
-
-    st.divider()
-
-    st.caption(
-        "현재 상권 분석은 공모전 데모용 샘플 프로필입니다. "
-        "향후 실제 공공 상권 데이터로 교체할 수 있습니다."
-    )
-
-
-# =========================================================
-# Hero
-# =========================================================
-
-st.markdown(
-    f"""
-    <div class="hero">
-
-        <h1>🎬 {APP_TITLE}</h1>
-
-        <div class="muted">
-            {APP_SUBTITLE}
-        </div>
-
-        <br/>
-
-        <b>
-        사진 여러 장
-        → 상권 분석
-        → 광고 전략
-        → AI 영상
-        → 자막
-        → TTS
-        → 최종 광고영상
-        </b>
-
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-
-# =========================================================
-# Tabs
-# =========================================================
-
-tab_create, tab_ready = st.tabs(
-    [
-        "🚀 광고 만들기",
-        "✅ 시스템 점검",
-    ]
-)
-
-
-# =========================================================
-# 광고 만들기 TAB
-# =========================================================
-
-with tab_create:
-
-    # =====================================================
-    # STEP 1
-    # =====================================================
-
-    st.markdown(
-        '<span class="step">STEP 1</span>',
-        unsafe_allow_html=True,
-    )
-
-    st.subheader(
-        "사업과 홍보 대상을 입력하세요"
-    )
-
-    c1, c2, c3 = st.columns(3)
-
-    with c1:
-
-        store_name = st.text_input(
-            "가게 / 브랜드명",
-            placeholder="예: 현모헤어",
-        )
-
-        business_type = st.selectbox(
-            "업종",
-            BUSINESS_TYPES,
-        )
-
-    with c2:
-
-        subject_type = st.selectbox(
-            "홍보 대상",
-            SUBJECT_TYPES,
-        )
-
-        subject_name = st.text_input(
-            "홍보 대상 이름",
-            placeholder="예: 레이어드컷",
-        )
-
-    with c3:
-
-        goal = st.selectbox(
-            "광고 목표",
-            GOALS,
-        )
-
-        style = st.selectbox(
-            "광고 콘셉트",
-            AD_STYLES,
-        )
-
-    description = st.text_area(
-        "간단한 설명",
-        placeholder=(
-            "예: 1:1 상담 후 얼굴형에 맞는 "
-            "헤어스타일링"
-        ),
-        height=90,
-    )
-
-    unique_point = st.text_input(
-        "강조하고 싶은 차별점",
-        placeholder=(
-            "예: 30년 경력, "
-            "뛰어난 두피마사지"
-        ),
-    )
-
-
-    # =====================================================
-    # STEP 2
-    # =====================================================
-
-    st.markdown(
-        '<span class="step">STEP 2</span>',
-        unsafe_allow_html=True,
-    )
-
-    st.subheader(
-        "상권 정보를 선택하세요"
-    )
-
-    a1, a2 = st.columns(2)
-
-    with a1:
-
-        location_name = st.text_input(
-            "지역 / 상권명",
-            placeholder="예: 천안 안서동",
-        )
-
-    with a2:
-
-        area_type = st.selectbox(
-            "상권 유형",
-            AREA_TYPES,
-        )
-
-
-    # =====================================================
-    # STEP 3
-    # =====================================================
-
-    st.markdown(
-        '<span class="step">STEP 3</span>',
-        unsafe_allow_html=True,
-    )
-
-    st.subheader(
-        "대표 사진을 올려주세요"
-    )
-
-    uploaded_files = st.file_uploader(
-        "제품·메뉴·서비스·매장·시술·포트폴리오 사진",
-        type=[
-            "jpg",
-            "jpeg",
-            "png",
-            "webp",
-        ],
-        accept_multiple_files=True,
-        help=(
-            "최대 3장을 추천합니다. "
-            "각 사진이 하나의 광고 장면이 됩니다."
-        ),
-    )
-
-    # 최대 3장
-    if (
-        uploaded_files
-        and len(uploaded_files) > 3
-    ):
-
-        st.warning(
-            "공모전 데모에서는 최대 3장까지만 사용합니다."
-        )
-
-        uploaded_files = uploaded_files[:3]
-
-    # 미리보기
-    if uploaded_files:
-
-        preview_cols = st.columns(
-            len(uploaded_files)
-        )
-
-        for idx, uploaded in enumerate(
-            uploaded_files
-        ):
-
-            with preview_cols[idx]:
-
-                st.image(
-                    uploaded,
-                    caption=f"장면 {idx + 1}",
-                    use_container_width=True,
-                )
-
-
-    # =====================================================
-    # 광고 기획 생성
-    # =====================================================
-
-    can_plan = bool(
-        subject_name.strip()
-        and description.strip()
-    )
-
-    if st.button(
-        "🧠 상권 분석 + 광고 기획 만들기",
-        type="primary",
-        use_container_width=True,
-        disabled=not can_plan,
-    ):
-
-        # -------------------------------------------------
-        # 상권 분석
-        # -------------------------------------------------
-
-        analysis = analyze_market(
-            area_type=area_type,
-            business_type=business_type,
-            goal=goal,
-            location_name=location_name,
-        )
-
-        # -------------------------------------------------
-        # 광고 카피
-        # -------------------------------------------------
-
-        ad_copy = make_ad_copy(
-            subject_name=subject_name,
-            description=description,
-            analysis=analysis,
-            style=style,
-            goal=goal,
-            store_name=store_name,
-        )
-
-        # -------------------------------------------------
-        # Runway 기본 Prompt
-        # -------------------------------------------------
-
-        base_prompt = build_runway_prompt(
-            business_type=business_type,
-            subject_type=subject_type,
-            subject_name=subject_name,
-            description=description,
-            style=style,
-            goal=goal,
-            analysis=analysis,
-            unique_point=unique_point,
-        )
-
-        # -------------------------------------------------
-        # session_state
-        # -------------------------------------------------
-
-        st.session_state["analysis"] = (
-            analysis
-        )
-
-        st.session_state["ad_copy"] = (
-            ad_copy
-        )
-
-        st.session_state["base_prompt"] = (
-            base_prompt
-        )
-
-        st.session_state["form"] = {
-
-            "store_name":
-                store_name,
-
-            "business_type":
-                business_type,
-
-            "subject_type":
-                subject_type,
-
-            "subject_name":
-                subject_name,
-
-            "description":
-                description,
-
-            "goal":
-                goal,
-
-            "style":
-                style,
-
-            "location_name":
-                location_name,
-
-            "area_type":
-                area_type,
-
-            "unique_point":
-                unique_point,
-        }
-
-        # -------------------------------------------------
-        # 장면별 Prompt
-        # -------------------------------------------------
-
+    st.caption('내레이션 · 무료 로컬 AI 음성')
+    with st.expander('영상 서비스 연결'):
+        st.caption('Runway · ' + ('키 설정됨' if api_key_configured() else '키 미설정'))
+        st.caption('음성 생성에는 가입이나 API 키가 필요하지 않습니다.')
+    st.markdown('<div class="side-foot">작은 가게의 이야기를,<br>기억에 남는 광고로.</div>', unsafe_allow_html=True)
+
+if section != '광고 제작':
+    render_management(section)
+    st.stop()
+
+st.markdown('<div class="topbar"><span>WORKSPACE <b>/ 광고 스튜디오</b></span><span class="top-chip">VERTICAL FILM &nbsp; 9:16</span></div>', unsafe_allow_html=True)
+st.markdown('<div class="page-title"><p>LOCAL STORIES, WELL TOLD.</p><h1>우리 가게의 다음 장면.</h1><div>사진에 움직임을, 이야기에 목소리를 더하세요.</div></div>', unsafe_allow_html=True)
+
+editor, preview_panel = st.columns([1.55, 1], gap='large')
+with editor:
+    st.markdown('<div class="panel-heading"><h2>광고 편집</h2><span>CREATIVE DESK</span></div>', unsafe_allow_html=True)
+    brand_tab, situation_tab, scene_tab, speech_tab, music_tab, market_tab, campaign_tab = st.tabs(['브랜드', '오늘의 상황', '장면', '카피 · 음성', '배경음악', '지역 근거', '캠페인'])
+    with brand_tab:
+        st.markdown('#### 어떤 이야기를 전할까요?')
+        a, b = st.columns(2)
+        store = a.text_input('브랜드명', placeholder='예: 현모헤어', key='brand_name')
+        subject = b.text_input('홍보할 제품·서비스', placeholder='예: 시그니처 레이어드컷', key='subject_name')
+        description = st.text_area('소개', placeholder='고객에게 전하고 싶은 제품이나 서비스의 특징', height=110, key='brand_description')
+        unique = st.text_input('가장 자신 있는 한 가지', placeholder='예: 30년 경력의 1:1 맞춤 상담', key='brand_unique')
+        a, b = st.columns(2)
+        business = a.selectbox('업종', BUSINESS_TYPES,key='business_choice')
+        subject_type = b.selectbox('홍보 대상', SUBJECT_TYPES,key='subject_choice')
+        a, b = st.columns(2)
+        location = a.text_input('지역', placeholder='예: 천안 안서동',key='location_name')
+        area = b.selectbox('상권 유형', AREA_TYPES,key='area_choice')
+        a, b = st.columns(2)
+        style = a.selectbox('광고 분위기', AD_STYLES, index=3,key='style_choice')
+        goal = b.selectbox('광고 목표', GOALS,key='goal_choice')
+        brand_controls()
+
+    analysis = analyze_market(area_type=area, business_type=business, goal=goal, location_name=location)
+    form = dict(store_name=store, subject_name=subject, description=description, unique_point=unique,
+                business_type=business, subject_type=subject_type, location_name=location,
+                area_type=area, style=style, goal=goal)
+    form['local_evidence'] = store_db.get_market(location)
+    form['price'] = st.session_state.get('product_price',0)
+    form['menu'] = st.session_state.get('brand_menu','')
+    analysis['local_evidence'] = form['local_evidence']
+    with situation_tab:
+        situation_controls(form)
+    with market_tab:
+        local_rows, local_summary = market_controls(location)
+
+    base_prompt = build_runway_prompt(business_type=business, subject_type=subject_type,
+    subject_name=subject, description=description, style=style, goal=goal, analysis=analysis, unique_point=unique)
+    base_prompt = base_prompt[:600] + ('\nUser-provided local evidence: '+local_summary[:180] if local_summary else '') + '\nNo generated text, subtitles, captions, logos or watermarks. Preserve the original subject. One realistic continuous shot.'
+
+    with scene_tab:
+        source = st.radio('장면 소스', ['사진으로 생성', '저장된 영상'], horizontal=True, label_visibility='collapsed',key='scene_source')
+        uploads = []
+        selected_paths = []
         prompts = []
+        if source == '사진으로 생성':
+            uploads = st.file_uploader('브랜드 사진', type=['jpg','jpeg','png','webp'], accept_multiple_files=True,
+                                       help='최대 3장. 업로드 순서대로 영상이 연결됩니다.') or []
+            if uploads:
+                st.session_state['_scene_photos']=[(f.name,f.getvalue()) for f in uploads[:3]]
+            elif st.session_state.get('_scene_photos') and st.checkbox('이전에 추가한 사진 재사용',value=True):
+                for name,data in st.session_state['_scene_photos']:
+                    file=io.BytesIO(data); file.name=name; uploads.append(file)
+            if len(uploads) > 3:
+                st.warning('한 편에 사진 3장까지 사용할 수 있습니다.')
+                uploads = uploads[:3]
+            for i, file in enumerate(uploads):
+                identity = digest(file.getvalue())[:12]
+                with st.container(border=True):
+                    thumb, details = st.columns([1, 2])
+                    thumb.image(file.getvalue(), use_container_width=True)
+                    details.markdown(f'**SCENE {i+1:02d}**')
+                    details.caption(file.name)
+                    details.caption(f'{duration}초 · 9:16')
+                    with st.expander('장면 연출 편집'):
+                        prompts.append(st.text_area('영상 프롬프트', value=base_prompt[:950],
+                            key=f'direction_{i}_{identity}_{digest(base_prompt)[:8]}', height=180, max_chars=1000))
+            if not uploads:
+                st.caption('제품, 공간, 서비스 사진을 추가하세요.')
+        else:
+            paths = sorted(OUTPUTS.glob('ad_*.mp4'), key=lambda p: p.stat().st_mtime, reverse=True)
+            options=[p.name for p in paths]
+            if 'saved_scene_names' in st.session_state:
+                st.session_state['saved_scene_names']=[name for name in st.session_state['saved_scene_names'] if name in options]
+            selected_names = st.multiselect('연결할 영상 · 선택한 순서대로 배치', options, max_selections=6,key='saved_scene_names')
+            selected_paths = [OUTPUTS / name for name in selected_names]
+            for i, path in enumerate(selected_paths):
+                with st.expander(f'장면 {i+1:02d} · {path.name}'):
+                    st.video(str(path))
+            if not paths:
+                st.caption('아직 저장된 개별 장면이 없습니다.')
 
-        if uploaded_files:
-
-            for i in range(
-                len(uploaded_files)
-            ):
-
-                if i == 0:
-
-                    scene_prompt = (
-                        f"{base_prompt}\n\n"
-                        "Focus on the main subject. "
-                        "Create a strong opening shot. "
-                        "Use clear natural movement."
-                    )
-
-                elif i == 1:
-
-                    scene_prompt = (
-                        f"{base_prompt}\n\n"
-                        "Create a second advertising scene. "
-                        "Highlight another important selling point. "
-                        "Use natural realistic movement."
-                    )
-
+    with speech_tab:
+        variant_selector()
+        if st.button('광고 카피 제안받기', disabled=not (subject.strip() and description.strip()), use_container_width=True):
+            copy = make_ad_copy(subject_name=subject, description=description, analysis=analysis,
+                                style=style, goal=goal, store_name=store)
+            st.session_state.update(ad_headline=copy['headline'], ad_detail=unique or description,
+                ad_cta=copy['cta'], ad_brand=' · '.join(s for s in [store,location] if s),
+                ad_narration=f"{subject}. {unique or description}. {copy['cta']}")
+        use_captions = st.toggle('자막', value=True, key='captions_enabled')
+        caption_1 = st.text_input('첫 문장', key='ad_headline', placeholder='시선을 붙잡는 한 문장', disabled=not use_captions)
+        caption_2 = st.text_input('핵심 장점', key='ad_detail', placeholder='우리 가게만의 차별점', disabled=not use_captions)
+        caption_3 = st.text_input('방문·예약 문구', key='ad_cta', placeholder='지금 예약하세요', disabled=not use_captions)
+        caption_4 = st.text_input('마지막 브랜드 문구', key='ad_brand', placeholder='가게 이름 · 지역', disabled=not use_captions)
+        st.divider()
+        use_tts = st.toggle('AI 내레이션', value=True, key='voice_enabled')
+        voice_source = st.radio('내레이션 방식', ['무료 AI 음성', '음성 파일 업로드'], horizontal=True, disabled=not use_tts,key='voice_source_choice')
+        uploaded_audio = None
+        if voice_source == '무료 AI 음성':
+            st.markdown('<span class="service-label">SUPERTONIC · ON DEVICE · FREE</span>', unsafe_allow_html=True)
+            voice_id = st.selectbox('목소리', list(VOICES), format_func=VOICES.get, disabled=not use_tts,key='voice_choice')
+            speed = st.slider('말하기 속도', .7, 1.5, 1.0, .05, disabled=not use_tts,key='voice_speed')
+            quality = st.selectbox('음성 품질', [8,12], format_func=lambda n: '표준' if n==8 else '정밀', disabled=not use_tts,key='voice_quality')
+            narration = st.text_area('내레이션', key='ad_narration', height=130, max_chars=3000,
+                                     placeholder='광고에 담을 목소리를 작성하세요.', disabled=not use_tts)
+            tts_options = dict(voice_id=voice_id, speed=speed, quality=quality)
+            ready_speech = bool(narration.strip())
+            if st.button('내레이션 미리 듣기', disabled=not use_tts or not ready_speech, use_container_width=True):
+                try:
+                    with st.spinner('목소리를 만들고 있습니다…'):
+                        speech_bytes(narration.strip(), tts_options)
+                except Exception as error:
+                    st.error(str(error))
+            cached_speech = st.session_state.get('studio_speech')
+            if use_tts and cached_speech and cached_speech['id'] == digest((narration.strip(), tts_options)):
+                st.audio(cached_speech['bytes'], format='audio/wav')
+            st.caption('무료 · API 키 불필요 · 내 PC에서 생성합니다. 캡컷 애덤과는 다른 목소리입니다.')
+        else:
+            uploaded_audio = st.file_uploader('내레이션 오디오', type=['mp3','wav','m4a'], disabled=not use_tts,
+                help='캡컷 등에서 만든 음성을 그대로 사용할 수 있습니다. 최대 20MB.')
+            narration,tts_options = '',{}
+            ready_speech = bool(uploaded_audio and uploaded_audio.size<=20*1024*1024)
+            if uploaded_audio:
+                if ready_speech:
+                    st.audio(uploaded_audio.getvalue())
                 else:
+                    st.error('음성 파일은 20MB 이하로 올려 주세요.')
+        current_variant = update_variant(caption_1,caption_2,caption_3,caption_4,narration)
+        wants_ab = st.checkbox('같은 장면으로 A/B 두 편 함께 제작',value=False,
+            disabled=not bool(st.session_state.get('studio_variants')) or (use_tts and voice_source=='음성 파일 업로드'),key='ab_enabled')
+        ab_mode = wants_ab and bool(st.session_state.get('studio_variants')) and not (use_tts and voice_source=='음성 파일 업로드')
+        if ab_mode:
+            st.caption('장면 생성 비용은 한 번만 사용합니다. A/B는 첫 문장·자막·무료 음성을 다르게 만듭니다.')
+            st.dataframe(st.session_state['studio_variants'],hide_index=True,use_container_width=True)
 
-                    scene_prompt = (
-                        f"{base_prompt}\n\n"
-                        "Create a polished final commercial scene. "
-                        "Use a welcoming atmosphere and smooth camera movement. "
-                        "Leave clean visual space for text overlay."
-                    )
+        with st.expander('광고 전략'):
+            st.write('핵심 고객', analysis['target'])
+            st.write('마케팅 키워드', ' · '.join(analysis['keywords']))
+            st.caption('상권 유형별 샘플 프로필 기반 제안이며, 실제 매출·유동인구 분석은 아닙니다.')
+            ad_copy = dict(headline=caption_1, body=caption_2, cta=caption_3)
+            report = build_project_report(form, analysis, ad_copy, '\n\n'.join(prompts), model, duration)
+            st.download_button('기획안 저장', report.encode('utf-8'), 'marketing_plan.json', 'application/json')
 
-                prompts.append(
-                    scene_prompt[:950]
-                )
+    with music_tab:
+        st.markdown('#### 광고의 분위기를 더하세요')
+        selected_music = st.selectbox('무료 배경음악', ['none', *TRACKS],
+            format_func=lambda key: '음악 없음' if key == 'none' else TRACKS[key],key='bgm_choice')
+        music_volume = st.slider('배경음악 음량', 0, 60, 18, format='%d%%', disabled=selected_music=='none',key='bgm_volume')
+        duck_music = st.toggle('내레이션이 나올 때 음악 자동으로 낮추기', value=True, disabled=selected_music=='none')
+        bgm_audio = None
+        if selected_music != 'none':
+            music_path = ensure_tracks()[selected_music]
+            bgm_audio = music_path.read_bytes()
+            st.audio(bgm_audio,format='audio/wav')
+            st.caption('미리 듣기는 원본 음량입니다. 완성 영상에는 위 음량과 자동 조절이 적용됩니다.')
+        st.caption('동네AI용으로 직접 합성한 기본 음악입니다. 광고에 무료로 사용할 수 있습니다.')
+        st.caption('음악은 영상 길이에 맞춰 반복되며 끝에서 자연스럽게 작아집니다. 음악을 선택하면 원본 장면 소리는 제외됩니다.')
 
-        st.session_state[
-            "scene_prompts"
-        ] = prompts
+    with campaign_tab:
+        campaign, tracking_links, tracking_base = campaign_controls(form,current_variant,ab_mode)
+        use_qr = st.checkbox('영상 마지막 3초에 해당 광고 QR 표시',disabled=not bool(tracking_links),key='qr_enabled')
+        if use_qr and tracking_links:
+            st.caption('임시 주소가 바뀌면 이미 영상에 넣은 QR도 바뀌지 않습니다. 정식 게시 전 고정 주소를 사용하세요.')
+    render_variants = st.session_state['studio_variants'] if ab_mode else [current_variant]
 
+    # Speech generation happens before expensive video generation, so a voice error cannot waste scene credits.
+    count = len(uploads) if source == '사진으로 생성' else len(selected_paths)
+    signature = digest((source, model, duration, prompts,
+        [digest(f.getvalue()) for f in uploads], [(p.name,p.stat().st_mtime_ns) for p in selected_paths]))
+    cached = st.session_state.get('studio_scenes')
+    same_scenes = bool(cached and cached['signature'] == signature)
+    complete_cache = bool(same_scenes and len(cached['videos']) == count)
+    cost = estimated_cost(model, duration)
+    missing = []
+    if not count:
+        missing.append('장면을 추가해 주세요.')
+    if source == '사진으로 생성' and not complete_cache and not api_key_configured():
+        missing.append('영상 생성을 위해 Runway API 키를 설정해 주세요.')
+    if use_tts and not ready_speech:
+        missing.append('내레이션 문구 또는 음성 파일을 추가해 주세요.')
+    if source == '사진으로 생성' and any(not p.strip() for p in prompts):
+        missing.append('빈 장면 연출을 작성해 주세요.')
 
-    # =====================================================
-    # STEP 4
-    # =====================================================
-
-    if (
-        "analysis"
-        in st.session_state
-    ):
-
-        analysis = (
-            st.session_state[
-                "analysis"
-            ]
-        )
-
-        ad_copy = (
-            st.session_state[
-                "ad_copy"
-            ]
-        )
-
-        st.divider()
-
-        st.markdown(
-            '<span class="step">STEP 4</span>',
-            unsafe_allow_html=True,
-        )
-
-        st.subheader(
-            "분석 결과와 광고 기획"
-        )
-
-        r1, r2, r3 = st.columns(3)
-
-        # ---------------------------------------------
-        # 고객
-        # ---------------------------------------------
-
-        with r1:
-
-            st.markdown(
-                '<div class="result-card">',
-                unsafe_allow_html=True,
-            )
-
-            st.markdown(
-                "**🎯 예상 핵심 고객**"
-            )
-
-            st.write(
-                analysis["target"]
-            )
-
-            st.markdown(
-                "**⏰ 반응 시간대**"
-            )
-
-            st.write(
-                analysis["peak"]
-            )
-
-            st.markdown(
-                "</div>",
-                unsafe_allow_html=True,
-            )
-
-        # ---------------------------------------------
-        # 상권
-        # ---------------------------------------------
-
-        with r2:
-
-            st.markdown(
-                '<div class="result-card">',
-                unsafe_allow_html=True,
-            )
-
-            st.markdown(
-                "**📍 상권 특성**"
-            )
-
-            for item in analysis["traits"]:
-
-                st.write(
-                    f"• {item}"
-                )
-
-            st.markdown(
-                "</div>",
-                unsafe_allow_html=True,
-            )
-
-        # ---------------------------------------------
-        # 키워드
-        # ---------------------------------------------
-
-        with r3:
-
-            st.markdown(
-                '<div class="result-card">',
-                unsafe_allow_html=True,
-            )
-
-            st.markdown(
-                "**💡 마케팅 키워드**"
-            )
-
-            st.write(
-                " · ".join(
-                    analysis["keywords"]
-                )
-            )
-
-            st.markdown(
-                "**업종 강조점**"
-            )
-
-            st.write(
-                " · ".join(
-                    analysis[
-                        "business_points"
-                    ]
-                )
-            )
-
-            st.markdown(
-                "</div>",
-                unsafe_allow_html=True,
-            )
-
-        st.info(
-            analysis["disclaimer"]
-        )
-
-
-        # =================================================
-        # 광고 카피
-        # =================================================
-
-        st.markdown(
-            "### ✍️ 광고 카피"
-        )
-
-        st.success(
-            ad_copy["headline"]
-        )
-
-        st.write(
-            ad_copy["body"]
-        )
-
-        st.write(
-            "**CTA:**",
-            ad_copy["cta"],
-        )
-
-
-        # =================================================
-        # 장면별 Runway Prompt
-        # =================================================
-
-        st.markdown(
-            "### 🎥 장면별 Runway 프롬프트"
-        )
-
-        edited_prompts = []
-
-        scene_prompts = (
-            st.session_state.get(
-                "scene_prompts",
-                [],
-            )
-        )
-
-        if uploaded_files:
-
-            # 업로드 수와 Prompt 수가 다르면 다시 생성
-            if (
-                len(scene_prompts)
-                != len(uploaded_files)
-            ):
-
-                base_prompt = (
-                    st.session_state[
-                        "base_prompt"
-                    ]
-                )
-
-                scene_prompts = []
-
-                for i in range(
-                    len(uploaded_files)
-                ):
-
-                    scene_prompts.append(
-                        base_prompt[:950]
-                    )
-
-                st.session_state[
-                    "scene_prompts"
-                ] = scene_prompts
-
-            for i in range(
-                len(uploaded_files)
-            ):
-
-                default_prompt = (
-                    scene_prompts[i]
-                )
-
-                edited = st.text_area(
-                    f"장면 {i + 1} 프롬프트",
-                    value=default_prompt,
-                    height=220,
-                    key=f"scene_prompt_{i}",
-                )
-
-                edited_prompts.append(
-                    edited
-                )
-
+with preview_panel:
+    with st.container(key='preview'):
+        st.markdown('<div class="panel-heading"><h2>미리보기</h2><span>YOUR NEXT AD</span></div>', unsafe_allow_html=True)
+        completed = st.session_state.get('studio_completed') or st.session_state.get('completed_ad')
+        if completed:
+            st.video(completed['bytes'])
+            st.caption('마지막으로 완성한 영상 · 설정 변경 후 다시 제작하면 반영됩니다.')
+            st.download_button('MP4 다운로드 ↓', completed['bytes'], 'dongnae_ad.mp4', 'video/mp4', use_container_width=True)
+            alternatives=st.session_state.get('completed_variants',[])
+            if len(alternatives)>1:
+                for item in alternatives:
+                    with st.expander(f"{item['label']}안 보기·다운로드"):
+                        st.video(item['bytes'])
+                        st.download_button(f"{item['label']}안 MP4",item['bytes'],f"dongnae_{item['label']}.mp4",'video/mp4',key='variant_download_'+item['label'])
+        elif uploads:
+            st.image(uploads[0].getvalue(), use_container_width=True)
+            st.caption('첫 장면 · 원본 사진')
+        elif selected_paths:
+            st.video(str(selected_paths[0]))
+            st.caption('첫 장면 · 원본 영상')
         else:
-
-            st.warning(
-                "사진을 먼저 업로드해주세요."
-            )
-
-
-        # =================================================
-        # 광고 자막
-        # =================================================
-
-        st.markdown(
-            "### 💬 마지막 장면 광고 자막"
-        )
-
-        use_captions = st.checkbox(
-            "마지막 장면에 광고 자막 넣기",
-            value=True,
-        )
-
-        caption_1 = st.text_input(
-            "자막 1",
-            value=(
-                ad_copy["headline"]
-            ),
-        )
-
-        # 차별점에서 자막 기본값 생성
-        if unique_point.strip():
-
-            unique_caption = (
-                unique_point.strip()
-            )
-
-        else:
-
-            unique_caption = (
-                "전문성과 경험으로 "
-                "차이를 만듭니다."
-            )
-
-        caption_2 = st.text_input(
-            "자막 2",
-            value=unique_caption,
-        )
-
-        caption_3 = st.text_input(
-            "자막 3",
-            value=(
-                ad_copy["cta"]
-            ),
-        )
-
-        brand_caption = (
-            f"{store_name}"
-        )
-
-        if location_name.strip():
-
-            brand_caption += (
-                f" · {location_name}"
-            )
-
-        caption_4 = st.text_input(
-            "마지막 브랜드 문구",
-            value=brand_caption,
-        )
-
-
-        # =================================================
-        # TTS
-        # =================================================
-
-        st.markdown(
-            "### 🎙 TTS 내레이션"
-        )
-
-        use_tts = st.checkbox(
-            "한국어 TTS 내레이션 사용",
-            value=True,
-        )
-
-        # 기본 내레이션 생성
-        narration_default = (
-            f"{subject_name}. "
-        )
-
-        if unique_point.strip():
-
-            narration_default += (
-                f"{unique_point}. "
-            )
-
-        narration_default += (
-            f"{ad_copy['cta']}"
-        )
-
-        narration_text = st.text_area(
-            "내레이션 문구",
-            value=narration_default,
-            height=110,
-            disabled=not use_tts,
-        )
-
-        st.caption(
-            "현재 데모에서는 gTTS 한국어 음성을 사용합니다. "
-            "추후 남성/여성·감성·유머러스 음성 스타일 선택 기능으로 확장할 수 있습니다."
-        )
-
-
-        # =================================================
-        # 리포트 저장
-        # =================================================
-
-        report = build_project_report(
-            st.session_state["form"],
-            analysis,
-            ad_copy,
-            (
-                "\n\n".join(
-                    edited_prompts
-                )
-                if edited_prompts
-                else ""
-            ),
-            model,
-            duration,
-        )
-
-        st.download_button(
-            "📄 분석·프롬프트 JSON 저장",
-            data=report.encode(
-                "utf-8"
-            ),
-            file_name=(
-                "ai_marketing_plan.json"
-            ),
-            mime="application/json",
-        )
-
-
-        # =================================================
-        # STEP 5
-        # =================================================
-
-        st.divider()
-
-        st.markdown(
-            '<span class="step">STEP 5</span>',
-            unsafe_allow_html=True,
-        )
-
-        st.subheader(
-            "Runway AI 광고영상 생성"
-        )
-
-        clip_count = (
-            len(uploaded_files)
-            if uploaded_files
-            else 0
-        )
-
-        total_credits = (
-            cost["credits"]
-            * clip_count
-        )
-
-        total_usd = (
-            cost["usd"]
-            * clip_count
-        )
-
-        cc1, cc2, cc3 = (
-            st.columns(3)
-        )
-
-        cc1.metric(
-            "모델",
-            RUNWAY_MODELS[
-                model
-            ]["label"].split(
-                " · "
-            )[0],
-        )
-
-        cc2.metric(
-            "영상 길이",
-            (
-                f"{duration}초 "
-                f"× {clip_count}장면"
-            ),
-        )
-
-        cc3.metric(
-            "예상 총비용",
-            (
-                f"{total_credits} credits "
-                f"/ ${total_usd:.2f}"
-            ),
-        )
-
-
-        # =================================================
-        # 생성 가능 여부
-        # =================================================
-
-        missing = []
-
-        if not uploaded_files:
-
-            missing.append(
-                "대표 사진"
-            )
-
-        if not api_key_configured():
-
-            missing.append(
-                "Runway API 키"
-            )
-
-        if missing:
-
-            st.warning(
-                "실제 영상 생성 전 필요한 항목: "
-                + ", ".join(missing)
-            )
-
-
-        # =================================================
-        # 생성 버튼
-        # =================================================
-
-        generate_clicked = st.button(
-            "🎬 AI 광고영상 만들기",
-            type="primary",
-            use_container_width=True,
-            disabled=bool(missing),
-        )
-
-
-        # =================================================
-        # 실제 영상 생성
-        # =================================================
-
-        if generate_clicked:
-
-            scene_videos = []
-
-            saved_clip_paths = []
-
-            progress = st.progress(
-                0,
-                text=(
-                    "영상 생성을 준비하는 중입니다..."
-                ),
-            )
-
-            # ---------------------------------------------
-            # Runway 장면 생성
-            # ---------------------------------------------
-
-            for i, file in enumerate(
-                uploaded_files
-            ):
-
-                progress.progress(
-                    int(
-                        (
-                            i
-                            / len(
-                                uploaded_files
-                            )
-                        )
-                        * 80
-                    ),
-                    text=(
-                        f"장면 "
-                        f"{i + 1}/"
-                        f"{len(uploaded_files)} "
-                        f"생성 중..."
-                    ),
-                )
-
-                prompt_text = (
-                    edited_prompts[i]
-                    .strip()
-                )
-
-                image_bytes = (
-                    file.getvalue()
-                )
-
-                result = (
-                    generate_image_to_video(
-                        image_bytes=
-                            image_bytes,
-                        prompt=
-                            prompt_text,
-                        model=
-                            model,
-                        duration=
-                            duration,
-                    )
-                )
-
-                if not result.ok:
-
-                    st.error(
-                        f"장면 {i + 1} 생성 실패\n\n"
-                        f"{result.message}"
-                    )
-
-                    st.stop()
-
-                scene_videos.append(
-                    result.video_bytes
-                )
-
-                clip_path = save_video(
-                    result.video_bytes
-                )
-
-                saved_clip_paths.append(
-                    clip_path
-                )
-
-
-            # =================================================
-            # 자막 준비
-            # =================================================
-
-            final_captions = None
-
-            if use_captions:
-
-                final_captions = [
-                    caption_1,
-                    caption_2,
-                    caption_3,
-                    caption_4,
-                ]
-
-
-            # =================================================
-            # TTS 준비
-            # =================================================
-
-            final_narration = None
-
-            if (
-                use_tts
-                and narration_text.strip()
-            ):
-
-                final_narration = (
-                    narration_text.strip()
-                )
-
-
-            # =================================================
-            # 합치기
-            # =================================================
-
-            progress.progress(
-                85,
-                text=(
-                    "영상 합치기와 "
-                    "자막·내레이션 작업 중..."
-                ),
-            )
-
+            title = html.escape(store or '동네의 발견')
+            st.markdown(f'''<div class="film-placeholder"><div class="film-grain"></div>
+                <div class="film-top">DONGNAE ORIGINAL <span>9:16</span></div>
+                <div class="film-art"><i></i><i></i><i></i></div>
+                <div class="film-copy"><small>EVERY LOCAL HAS A STORY.</small><h2>{title}</h2>
+                <p>당신의 이야기가<br>시작되는 곳.</p></div><div class="film-bottom">AD PREVIEW <span>◈</span></div></div>''', unsafe_allow_html=True)
+        a,b,c = st.columns(3)
+        a.metric('장면', f'{count:02d}')
+        b.metric('영상 길이', f'{count*duration}초' if source == '사진으로 생성' else '원본 기준')
+        new_count = max(0, count - (len(cached['videos']) if same_scenes else 0)) if source == '사진으로 생성' else 0
+        c.metric('영상 생성비', f"${cost['usd'] * new_count:.2f}")
+        st.caption('TTS 무료 · 영상 생성만 과금 · 내레이션이 길면 마지막 화면이 연장됩니다.')
+        for message in missing:
+            st.caption(message)
+        label = '광고 완성하기' if source == '저장된 영상' else ('변경 내용으로 다시 편집' if complete_cache else '광고 영상 만들기')
+        if st.button(label + ' ↗', type='primary', disabled=bool(missing), use_container_width=True):
             try:
+                progress = st.progress(0, text='제작을 준비합니다…')
+                voice_results = {}
+                if use_tts:
+                    for variant in render_variants:
+                        progress.progress(5,text=f"{variant['label']}안 내레이션을 준비합니다…")
+                        voice_results[variant['label']] = uploaded_audio.getvalue() if voice_source == '음성 파일 업로드' else speech_bytes(variant['narration'].strip(),tts_options)
+                if source == '저장된 영상':
+                    scenes = [p.read_bytes() for p in selected_paths]
+                else:
+                    scenes = list(cached['videos']) if same_scenes else []
+                    for i,file in enumerate(uploads):
+                        if i < len(scenes):
+                            continue
+                        progress.progress(10 + int(i/count*60), text=f'장면 {i+1}/{count} 제작 중…')
+                        result = generate_image_to_video(image_bytes=file.getvalue(), prompt=prompts[i].strip(), model=model, duration=duration)
+                        if not result.ok:
+                            raise RuntimeError(f'장면 {i+1}: {result.message}')
+                        scenes.append(result.video_bytes)
+                        st.session_state['studio_scenes'] = dict(signature=signature, videos=list(scenes))
+                        save_video(result.video_bytes, directory=str(OUTPUTS))
+                completed_variants=[]
+                for number,variant in enumerate(render_variants):
+                    progress.progress(80+int(number/len(render_variants)*15),text=f"{variant['label']}안 장면·자막·음악을 연결합니다…")
+                    label=variant['label']
+                    data,path = merge_video_bytes(scenes, output_dir=str(OUTPUTS),
+                        final_captions=[variant['headline'],variant['detail'],variant['cta'],variant['brand']] if use_captions else None,
+                        narration_audio=voice_results.get(label),bgm_audio=bgm_audio,bgm_volume=music_volume/100,duck_music=duck_music,
+                        brand_logo=base64.b64decode(st.session_state['logo_b64']) if st.session_state.get('logo_b64') else None,
+                        brand_color=st.session_state.get('brand_color'),
+                        campaign_qr=qr_png(tracking_links[label]) if use_qr and label in tracking_links else None)
+                    result=dict(bytes=data,path=path,label=label)
+                    completed_variants.append(result)
+                    st.session_state['studio_completed']=result
+                    store_db.record_artifact(campaign['id'] if campaign else None,label,path)
+                st.session_state['completed_variants']=completed_variants
+                progress.progress(100,text='광고가 완성되었습니다.')
+                st.rerun()
+            except Exception as error:
+                st.error(str(error))
 
-                (
-                    merged_bytes,
-                    merged_path,
-                ) = merge_video_bytes(
-                    scene_videos,
-                    final_captions=
-                        final_captions,
-                    narration_text=
-                        final_narration,
-                )
-
-            except Exception as e:
-
-                st.error(
-                    f"최종 영상 제작 실패: {e}"
-                )
-
-                st.stop()
-
-
-            # =================================================
-            # 완료
-            # =================================================
-
-            progress.progress(
-                100,
-                text="광고영상 완성!",
-            )
-
-            st.success(
-                "🎉 광고영상 생성 완료!"
-            )
-
-
-            # =================================================
-            # 개별 장면
-            # =================================================
-
-            with st.expander(
-                "개별 AI 생성 장면 보기"
-            ):
-
-                for i, vb in enumerate(
-                    scene_videos
-                ):
-
-                    st.markdown(
-                        f"#### 장면 {i + 1}"
-                    )
-
-                    st.video(
-                        vb
-                    )
-
-                    st.caption(
-                        "저장 위치: "
-                        + saved_clip_paths[i]
-                    )
-
-
-            # =================================================
-            # 최종 영상
-            # =================================================
-
-            st.markdown(
-                "## 🎬 최종 광고영상"
-            )
-
-            st.video(
-                merged_bytes
-            )
-
-            st.download_button(
-                "⬇️ 최종 광고영상 MP4 다운로드",
-                data=merged_bytes,
-                file_name=(
-                    "dongnae_ai_final_ad.mp4"
-                ),
-                mime="video/mp4",
-                use_container_width=True,
-            )
-
-            st.caption(
-                "최종 저장 위치: "
-                + merged_path
-            )
-
-
-# =========================================================
-# 시스템 점검 TAB
-# =========================================================
-
-with tab_ready:
-
-    st.subheader(
-        "시스템 준비 상태"
-    )
-
-    checks = [
-
-        (
-            "Python 환경",
-            True,
-            "이 앱이 열렸다면 정상",
-        ),
-
-        (
-            "Streamlit UI",
-            True,
-            "정상",
-        ),
-
-        (
-            "상권 분석",
-            True,
-            "정상",
-        ),
-
-        (
-            "광고 카피",
-            True,
-            "정상",
-        ),
-
-        (
-            "Runway Prompt",
-            True,
-            "정상",
-        ),
-
-        (
-            "멀티 이미지",
-            True,
-            "최대 3장",
-        ),
-
-        (
-            "영상 자동 합치기",
-            True,
-            "MoviePy",
-        ),
-
-        (
-            "한국어 자막",
-            True,
-            "MoviePy + Pillow",
-        ),
-
-        (
-            "TTS 내레이션",
-            True,
-            "gTTS",
-        ),
-
-        (
-            "Runway API",
-            api_key_configured(),
-            ".env에서 감지",
-        ),
-
-        (
-            "Runway 크레딧",
-            None,
-            "실제 생성 시 사용",
-        ),
-    ]
-
-    for (
-        name,
-        state,
-        note,
-    ) in checks:
-
-        if state is True:
-
-            icon = "✅"
-
-        elif state is False:
-
-            icon = "⬜"
-
-        else:
-
-            icon = "💳"
-
-        st.write(
-            f"{icon} **{name}** — {note}"
-        )
-
-
-    st.divider()
-
-    st.markdown(
-        """
-        ### 현재 광고 제작 흐름
-
-        **① 사업 정보 입력**
-
-        ↓
-
-        **② 상권 특성 분석**
-
-        ↓
-
-        **③ 광고 카피 및 영상 프롬프트 생성**
-
-        ↓
-
-        **④ 사진별 Runway AI 영상 생성**
-
-        ↓
-
-        **⑤ 여러 영상 자동 연결**
-
-        ↓
-
-        **⑥ 마지막 장면 한글 광고 자막 삽입**
-
-        ↓
-
-        **⑦ 한국어 TTS 내레이션 삽입**
-
-        ↓
-
-        **⑧ 최종 MP4 생성 및 다운로드**
-        """
-    )
+st.markdown('<div class="page-footer"><b>동네AI</b><span>Made for the places we love.</span><span>ADVERTISING STUDIO</span></div>', unsafe_allow_html=True)

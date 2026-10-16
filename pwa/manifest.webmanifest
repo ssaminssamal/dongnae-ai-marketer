@@ -1,0 +1,11 @@
+{
+  "id": "/", "name": "동네AI 광고 스튜디오", "short_name": "동네AI",
+  "lang": "ko", "start_url": "/", "scope": "/", "display": "standalone",
+  "background_color": "#f6f5f1", "theme_color": "#242e29",
+  "description": "사진과 무료 AI 음성, 배경음악으로 만드는 우리 가게 광고",
+  "icons": [
+    {"src":"/pwa/icon-192.png","sizes":"192x192","type":"image/png","purpose":"any"},
+    {"src":"/pwa/icon-512.png","sizes":"512x512","type":"image/png","purpose":"any"},
+    {"src":"/pwa/icon-maskable.png","sizes":"512x512","type":"image/png","purpose":"maskable"}
+  ]
+}
