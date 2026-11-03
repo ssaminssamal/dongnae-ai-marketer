@@ -1,5 +1,28 @@
 # 동네AI 설치·외부 접속
 
+## Streamlit Community Cloud 무료 체험 배포
+
+1. `https://share.streamlit.io/`에 로그인하고 Create app을 선택합니다.
+2. Repository: `ssaminssamal/dongnae-ai-marketer`, Branch: `main`, Main file: `app.py`.
+3. Advanced settings에서 Python **3.11**을 선택하고 Secrets에 아래 값을 입력합니다.
+
+```toml
+RUNWAYML_API_SECRET = "실제 Runway API 키"
+DONGNAE_APP_PASSWORD = "교수님과 공유할 별도 체험 비밀번호"
+DONGNAE_TTS_BACKEND = "gtts"
+```
+
+실제 키와 비밀번호는 Cloud Secrets에만 저장합니다. `.env`와 `.streamlit/secrets.toml`은 커밋하지 않습니다. 루트 Secrets는 환경 변수로 제공되므로 기존 `os.getenv` 방식으로 읽습니다. 체험 비밀번호를 설정하면 앱의 저장 자료와 영상 생성 기능을 로그인 뒤에 제공합니다. 로그인한 체험자는 같은 브랜드·캠페인·완성 영상 보관함을 공유합니다.
+
+4. 앱 주소를 선택한 뒤 Deploy합니다. `requirements.txt`로 Python 패키지, `packages.txt`로 Linux 한글 폰트와 시스템 라이브러리를 설치합니다.
+5. 앱에서 로그인 → 사진 업로드 → 기획안 → 음성 미리 듣기 → 영상 생성 → 자막·BGM 합성 → MP4 다운로드를 확인합니다. Runway 생성에는 설정한 계정의 크레딧이 사용됩니다.
+
+Cloud에서는 미설치 로컬 음성 모델 대신 gTTS를 사용합니다. 문구가 Google 음성 서비스로 전송되며 인터넷 연결이 필요합니다. 기본 한국어 음성만 지원하고 속도·품질 선택은 비활성화됩니다. 기존 PC의 모델이 있으면 로컬 음성을 계속 사용하며 `DONGNAE_TTS_BACKEND=local`로 명시할 수도 있습니다.
+
+Cloud 파일과 SQLite 자료는 재시작·재배포 때 사라질 수 있습니다. 완성 영상은 즉시 다운로드하세요. Community Cloud는 `app.py`만 실행하므로 별도 `launch_app.py`가 제공하는 PWA 설치와 `/c/...` 캠페인 랜딩·성과 수집 서버는 제공되지 않습니다. 해당 기능은 아래 Docker 배포가 필요합니다. 공유 PC 자료를 Cloud로 업로드하지 마세요.
+
+교수님 체험은 짧은 5초 장면으로 먼저 확인하세요. 무료 서버의 메모리 한도로 긴 영상이나 여러 동시 합성은 실패할 수 있습니다.
+
 ## PC에서 앱처럼 사용
 
 ```powershell

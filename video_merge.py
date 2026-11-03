@@ -16,13 +16,19 @@ from tts_service import generate_tts, remove_tts_file
 
 FONT_CANDIDATES = [r'C:\Windows\Fonts\malgunbd.ttf', r'C:\Windows\Fonts\malgun.ttf']
 FONT_CANDIDATES += ['/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf', '/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc']
+FONT_CANDIDATES += ['/usr/share/fonts/truetype/nanum/NanumGothic.ttf', '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc']
+if os.getenv('DONGNAE_FONT_PATH'):
+    FONT_CANDIDATES.insert(0, os.environ['DONGNAE_FONT_PATH'])
 
 
 def _get_font(size):
     for path in FONT_CANDIDATES:
         if os.path.exists(path):
-            return ImageFont.truetype(path, size)
-    raise FileNotFoundError('한글 폰트를 찾을 수 없습니다.')
+            try:
+                return ImageFont.truetype(path, size)
+            except OSError:
+                continue
+    raise FileNotFoundError('한글 폰트를 찾을 수 없습니다. Linux에서는 fonts-nanum을 설치하거나 DONGNAE_FONT_PATH를 설정하세요.')
 
 
 def _wrap_text(text, draw, font, max_width):

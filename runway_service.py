@@ -93,7 +93,7 @@ def _friendly_error(exc: Exception) -> tuple[str, str]:
         return (
             "AUTH",
             "API 키가 없거나 유효하지 않습니다. "
-            ".env의 RUNWAYML_API_SECRET을 확인하세요."
+            "Streamlit Secrets 또는 .env의 RUNWAYML_API_SECRET을 확인하세요."
         )
 
     # 크레딧
@@ -258,7 +258,7 @@ def generate_image_to_video(
             error_code="NO_KEY",
             message=(
                 "Runway API 키가 설정되지 않았습니다. "
-                ".env 파일을 확인하세요."
+                "Streamlit Secrets 또는 .env의 RUNWAYML_API_SECRET을 확인하세요."
             )
         )
 

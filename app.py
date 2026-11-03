@@ -16,7 +16,7 @@ from config import BUSINESS_TYPES, SUBJECT_TYPES, AREA_TYPES, AD_STYLES, GOALS, 
 from market_engine import analyze_market, make_ad_copy
 from prompt_engine import build_runway_prompt
 from runway_service import api_key_configured, estimated_cost, generate_image_to_video, save_video
-from tts_service import VOICES, generate_tts, remove_tts_file
+from tts_service import VOICES, TTS_BACKEND, generate_tts, remove_tts_file
 from video_merge import merge_video_bytes
 from report_utils import build_project_report
 from music_catalog import TRACKS, ensure_tracks
@@ -27,6 +27,18 @@ from studio_extensions import (sidebar_library, render_management, brand_control
 ROOT = Path(__file__).resolve().parent
 OUTPUTS = ROOT / 'outputs'
 st.set_page_config(page_title='동네AI — 광고 스튜디오', page_icon='◈', layout='wide', initial_sidebar_state='collapsed')
+if os.getenv('DONGNAE_APP_PASSWORD') and not st.session_state.get('_demo_authenticated'):
+    import hmac
+    st.title('동네AI 마케터')
+    with st.form('demo_login'):
+        password = st.text_input('체험 비밀번호', type='password')
+        submitted = st.form_submit_button('시작하기')
+    if submitted:
+        if hmac.compare_digest(password.encode('utf-8'), os.environ['DONGNAE_APP_PASSWORD'].encode('utf-8')):
+            st.session_state['_demo_authenticated'] = True
+            st.rerun()
+        st.error('비밀번호를 확인해 주세요.')
+    st.stop()
 st.markdown((ROOT / 'studio.css').read_text(encoding='utf-8'), unsafe_allow_html=True)
 
 
@@ -58,7 +70,7 @@ with st.sidebar:
     duration = st.select_slider('장면 길이', [5, 10], value=5, format_func=lambda n: f'{n}초')
     st.caption('9:16 세로 영상 · MP4 · 24 fps')
     st.divider()
-    st.caption('내레이션 · 무료 로컬 AI 음성')
+    st.caption('내레이션 · 무료 음성')
     with st.expander('영상 서비스 연결'):
         st.caption('Runway · ' + ('키 설정됨' if api_key_configured() else '키 미설정'))
         st.caption('음성 생성에는 가입이나 API 키가 필요하지 않습니다.')
@@ -170,10 +182,13 @@ with editor:
         voice_source = st.radio('내레이션 방식', ['무료 AI 음성', '음성 파일 업로드'], horizontal=True, disabled=not use_tts,key='voice_source_choice')
         uploaded_audio = None
         if voice_source == '무료 AI 음성':
-            st.markdown('<span class="service-label">SUPERTONIC · ON DEVICE · FREE</span>', unsafe_allow_html=True)
+            service_label = 'SUPERTONIC · LOCAL · FREE' if TTS_BACKEND == 'local' else 'GOOGLE TTS · ONLINE · FREE'
+            st.markdown(f'<span class="service-label">{service_label}</span>', unsafe_allow_html=True)
             voice_id = st.selectbox('목소리', list(VOICES), format_func=VOICES.get, disabled=not use_tts,key='voice_choice')
-            speed = st.slider('말하기 속도', .7, 1.5, 1.0, .05, disabled=not use_tts,key='voice_speed')
-            quality = st.selectbox('음성 품질', [8,12], format_func=lambda n: '표준' if n==8 else '정밀', disabled=not use_tts,key='voice_quality')
+            speed = st.slider('말하기 속도', .7, 1.5, 1.0, .05, disabled=not use_tts or TTS_BACKEND=='gtts',key='voice_speed')
+            quality = st.selectbox('음성 품질', [8,12], format_func=lambda n: '표준' if n==8 else '정밀', disabled=not use_tts or TTS_BACKEND=='gtts',key='voice_quality')
+            if TTS_BACKEND == 'gtts':
+                st.caption('기본 한국어 음성을 사용합니다. 내레이션 문구는 Google 음성 서비스로 전송됩니다.')
             narration = st.text_area('내레이션', key='ad_narration', height=130, max_chars=3000,
                                      placeholder='광고에 담을 목소리를 작성하세요.', disabled=not use_tts)
             tts_options = dict(voice_id=voice_id, speed=speed, quality=quality)
@@ -186,8 +201,8 @@ with editor:
                     st.error(str(error))
             cached_speech = st.session_state.get('studio_speech')
             if use_tts and cached_speech and cached_speech['id'] == digest((narration.strip(), tts_options)):
-                st.audio(cached_speech['bytes'], format='audio/wav')
-            st.caption('무료 · API 키 불필요 · 내 PC에서 생성합니다. 캡컷 애덤과는 다른 목소리입니다.')
+                st.audio(cached_speech['bytes'], format='audio/wav' if TTS_BACKEND == 'local' else 'audio/mpeg')
+            st.caption('무료 · API 키 불필요 · 캡컷 애덤과는 다른 목소리입니다.')
         else:
             uploaded_audio = st.file_uploader('내레이션 오디오', type=['mp3','wav','m4a'], disabled=not use_tts,
                 help='캡컷 등에서 만든 음성을 그대로 사용할 수 있습니다. 최대 20MB.')

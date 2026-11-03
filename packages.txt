@@ -1,0 +1,4 @@
+fonts-nanum
+fonts-noto-cjk
+libgomp1
+libsndfile1
