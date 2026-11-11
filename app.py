@@ -14,6 +14,7 @@ if (Path(__file__).resolve().parent/'.vendor').exists():
 import streamlit as st
 from config import BUSINESS_TYPES, SUBJECT_TYPES, AREA_TYPES, AD_STYLES, GOALS, RUNWAY_MODELS
 from market_engine import analyze_market, make_ad_copy
+import ad_copy_ai
 from prompt_engine import build_runway_prompt
 from runway_service import api_key_configured, estimated_cost, generate_image_to_video, save_video
 from tts_service import VOICES, TTS_BACKEND, generate_tts, remove_tts_file
@@ -166,12 +167,38 @@ with editor:
 
     with speech_tab:
         variant_selector()
-        if st.button('광고 카피 제안받기', disabled=not (subject.strip() and description.strip()), use_container_width=True):
-            copy = make_ad_copy(subject_name=subject, description=description, analysis=analysis,
-                                style=style, goal=goal, store_name=store)
-            st.session_state.update(ad_headline=copy['headline'], ad_detail=unique or description,
-                ad_cta=copy['cta'], ad_brand=' · '.join(s for s in [store,location] if s),
-                ad_narration=f"{subject}. {unique or description}. {copy['cta']}")
+        ai_ready = ad_copy_ai.api_key_configured()
+        copy_mode = st.radio('문구 생성 방식', ['Claude AI', '기본 틀'], horizontal=True, key='copy_mode',
+            index=0 if ai_ready else 1, help='기본 틀은 정해진 문장에 상품 이름만 넣는 이전 방식입니다. 개선 전·후 비교용으로 남겨 두었습니다.')
+        if copy_mode == 'Claude AI' and not ai_ready:
+            st.caption('.env에 ANTHROPIC_API_KEY를 넣으면 Claude가 문구를 씁니다.')
+        if st.button('광고 카피 제안받기', disabled=not (subject.strip() and description.strip()) or (copy_mode == 'Claude AI' and not ai_ready), use_container_width=True):
+            brand_line = ' · '.join(s for s in [store,location] if s)
+            if copy_mode == 'Claude AI':
+                copy_form = dict(form, offer=st.session_state.get('campaign_offer',''), terms=st.session_state.get('campaign_terms',''))
+                try:
+                    with st.spinner('Claude가 문구를 쓰고, 입력하지 않은 내용이 있는지 검사하고 있습니다…'):
+                        result = ad_copy_ai.generate_copy(copy_form, analysis, style, goal)
+                    c = result['copy']
+                    st.session_state.update(ad_headline=c['headline'], ad_detail=c['detail'], ad_cta=c['cta'],
+                                            ad_brand=brand_line, ad_narration=c['narration'], copy_check=result)
+                except RuntimeError as error:
+                    st.error(str(error))
+            else:
+                copy = make_ad_copy(subject_name=subject, description=description, analysis=analysis,
+                                    style=style, goal=goal, store_name=store)
+                st.session_state.update(ad_headline=copy['headline'], ad_detail=unique or description,
+                    ad_cta=copy['cta'], ad_brand=brand_line,
+                    ad_narration=f"{subject}. {unique or description}. {copy['cta']}", copy_check=None)
+        check = st.session_state.get('copy_check')
+        if check:
+            if check['first_findings']:
+                with st.expander(f"입력하지 않은 내용 {len(check['first_findings'])}건을 걸러냈습니다", expanded=True):
+                    for f in check['first_findings']:
+                        st.caption(f"{ad_copy_ai.FIELD_LABELS[f['field']]} · {f['category_label']} · '{f['term']}' — {f['sentence']}")
+                    st.caption('다시 생성했습니다.' + (f" 다시 생성 후에도 남은 {len(check['final_findings'])}건은 문장을 뺐습니다." if check['final_findings'] else ' 다시 생성한 문구에는 문제가 없습니다.'))
+            else:
+                st.caption('검사 완료 · 입력하지 않은 가격·할인·효능·과장 표현이 없습니다.')
         use_captions = st.toggle('자막', value=True, key='captions_enabled')
         caption_1 = st.text_input('첫 문장', key='ad_headline', placeholder='시선을 붙잡는 한 문장', disabled=not use_captions)
         caption_2 = st.text_input('핵심 장점', key='ad_detail', placeholder='우리 가게만의 차별점', disabled=not use_captions)

@@ -32,6 +32,7 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           DONGNAE_APP_PASSWORD: ${{ secrets.DONGNAE_APP_PASSWORD }}
           RUNWAYML_API_SECRET: ${{ secrets.RUNWAYML_API_SECRET }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           HF_SPACE_OWNER: ${{ vars.HF_SPACE_OWNER }}
           HF_SPACE_NAME: ${{ vars.HF_SPACE_NAME }}
           DEPLOY_MESSAGE: ${{ github.sha }}

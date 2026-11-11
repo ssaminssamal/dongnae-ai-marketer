@@ -70,9 +70,10 @@ def main() -> int:
     # The Space must be public so other people can open it; the app's own password protects it.
     api.create_repo(repo_id, repo_type='space', space_sdk='docker', exist_ok=True, private=False)
     api.add_space_secret(repo_id, 'DONGNAE_APP_PASSWORD', password)
-    runway = os.getenv('RUNWAYML_API_SECRET', '').strip()
-    if runway:
-        api.add_space_secret(repo_id, 'RUNWAYML_API_SECRET', runway)
+    for secret in ('RUNWAYML_API_SECRET', 'ANTHROPIC_API_KEY'):
+        value = os.getenv(secret, '').strip()
+        if value:
+            api.add_space_secret(repo_id, secret, value)
 
     with tempfile.TemporaryDirectory() as tmp:
         stage = Path(tmp)

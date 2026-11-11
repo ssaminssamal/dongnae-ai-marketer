@@ -66,6 +66,7 @@ GitHub `main` 브랜치에 올리면 Hugging Face Space로 자동 배포됩니�
    | `HF_TOKEN` | 1번에서 복사한 토큰 |
    | `DONGNAE_APP_PASSWORD` | 이용자에게 알려줄 접속 비밀번호 (12자 이상) |
    | `RUNWAYML_API_SECRET` | (선택) Runway 영상 생성 키 |
+   | `ANTHROPIC_API_KEY` | (선택) Claude 광고 문구 생성 키 |
 
 3. 이 브랜치를 `main`에 병합하거나, **Actions → Deploy to Hugging Face Spaces → Run workflow** 를 누릅니다.
 4. Actions 실행 결과 화면에 **앱 주소**(`https://아이디-dongnae-ai-marketer.hf.space`)가 표시됩니다. 첫 빌드는 음성 모델 다운로드 때문에 10~15분 걸립니다. 진행 상황은 Space 페이지의 **Logs** 에서 볼 수 있습니다.
