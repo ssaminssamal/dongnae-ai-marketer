@@ -1,0 +1,40 @@
+name: Deploy to Hugging Face Spaces
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-hf
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Skip when Hugging Face token is not configured
+        id: check
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          if [ -z "$HF_TOKEN" ]; then
+            echo "HF_TOKEN secret is not set; skipping deploy." >> "$GITHUB_STEP_SUMMARY"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Upload to Space
+        if: steps.check.outputs.skip != 'true'
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          DONGNAE_APP_PASSWORD: ${{ secrets.DONGNAE_APP_PASSWORD }}
+          RUNWAYML_API_SECRET: ${{ secrets.RUNWAYML_API_SECRET }}
+          HF_SPACE_OWNER: ${{ vars.HF_SPACE_OWNER }}
+          HF_SPACE_NAME: ${{ vars.HF_SPACE_NAME }}
+          DEPLOY_MESSAGE: ${{ github.sha }}
+        run: |
+          pip install "huggingface_hub>=0.36,<1"
+          python deploy/hf_space.py

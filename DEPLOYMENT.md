@@ -19,7 +19,7 @@ DONGNAE_TTS_BACKEND = "gtts"
 
 Cloud에서는 미설치 로컬 음성 모델 대신 gTTS를 사용합니다. 문구가 Google 음성 서비스로 전송되며 인터넷 연결이 필요합니다. 기본 한국어 음성만 지원하고 속도·품질 선택은 비활성화됩니다. 기존 PC의 모델이 있으면 로컬 음성을 계속 사용하며 `DONGNAE_TTS_BACKEND=local`로 명시할 수도 있습니다.
 
-Cloud 파일과 SQLite 자료는 재시작·재배포 때 사라질 수 있습니다. 완성 영상은 즉시 다운로드하세요. Community Cloud는 `app.py`만 실행하므로 별도 `launch_app.py`가 제공하는 PWA 설치와 `/c/...` 캠페인 랜딩·성과 수집 서버는 제공되지 않습니다. 해당 기능은 아래 Docker 배포가 필요합니다. 공유 PC 자료를 Cloud로 업로드하지 마세요.
+Cloud 파일과 SQLite 자료는 재시작·재배포 때 사라질 수 있습니다. 완성 영상은 즉시 다운로드하세요. Community Cloud는 `app.py`만 실행하므로 별도 `launch_app.py`가 제공하는 PWA 설치와 `/c/...` 캠페인 랜딩·성과 수집 서버는 제공되지 않습니다. 해당 기능은 아래 Hugging Face Spaces 또는 Docker 배포가 필요합니다. 공유 PC 자료를 Cloud로 업로드하지 마세요.
 
 교수님 체험은 짧은 5초 장면으로 먼저 확인하세요. 무료 서버의 메모리 한도로 긴 영상이나 여러 동시 합성은 실패할 수 있습니다.
 
@@ -50,7 +50,38 @@ Cloudflare Quick Tunnel은 테스트용이며 SLA가 없습니다. 주소는 다
 
 임시 주소로 설치한 아이콘은 해당 주소가 살아 있는 동안의 테스트용입니다. 계속 사용할 설치 아이콘은 고정 HTTPS 주소에 배포한 뒤 만드세요. 휴대폰 자체에서 Python·AI 모델·영상 합성을 실행하는 구조가 아닙니다. 모바일 앱은 서버에 연결합니다.
 
-## PC를 꺼도 쓰는 상시 배포
+## 전체 기능 무료 배포 (Hugging Face Spaces)
+
+Streamlit Community Cloud와 달리 PWA 설치, `/c/...` 캠페인 랜딩·성과 수집, 로컬 무료 음성(Supertonic)까지 그대로 동작합니다. 이 저장소의 Dockerfile을 그대로 사용합니다.
+
+GitHub `main` 브랜치에 올리면 Hugging Face Space로 자동 배포됩니다. 고정 HTTPS 주소가 생기고, PC를 꺼도 동작합니다. 무료 사양은 CPU 2코어·RAM 16GB입니다.
+
+### 최초 1회 설정 (약 5분)
+
+1. https://huggingface.co 가입 → **Settings → Access Tokens → Create new token** → 종류 **Write** 선택 → 토큰 복사 (`hf_...`)
+2. GitHub 저장소 → **Settings → Secrets and variables → Actions → New repository secret** 에서 아래를 추가
+
+   | 이름 | 값 |
+   |---|---|
+   | `HF_TOKEN` | 1번에서 복사한 토큰 |
+   | `DONGNAE_APP_PASSWORD` | 이용자에게 알려줄 접속 비밀번호 (12자 이상) |
+   | `RUNWAYML_API_SECRET` | (선택) Runway 영상 생성 키 |
+
+3. 이 브랜치를 `main`에 병합하거나, **Actions → Deploy to Hugging Face Spaces → Run workflow** 를 누릅니다.
+4. Actions 실행 결과 화면에 **앱 주소**(`https://아이디-dongnae-ai-marketer.hf.space`)가 표시됩니다. 첫 빌드는 음성 모델 다운로드 때문에 10~15분 걸립니다. 진행 상황은 Space 페이지의 **Logs** 에서 볼 수 있습니다.
+5. 이용자에게 **앱 주소와 비밀번호**를 전달합니다. 휴대폰에서도 열고 홈 화면에 추가할 수 있습니다.
+
+Space 이름을 바꾸려면 GitHub **Variables** 에 `HF_SPACE_NAME`(기본 `dongnae-ai-marketer`)을, 조직 계정에 올리려면 `HF_SPACE_OWNER`를 추가하세요. 비밀번호를 바꾸려면 GitHub Secret을 수정한 뒤 워크플로를 다시 실행합니다.
+
+### 꼭 알아둘 점
+
+- **`huggingface.co/spaces/...` 페이지 안의 미리보기 창에서는 로그인되지 않습니다.** 보안 설정상 다른 사이트 안에 끼워 넣을 수 없기 때문입니다. 반드시 `https://...hf.space` 주소를 직접 여세요.
+- Space는 **공개(public)** 로 만들어집니다. 그래야 HF 계정 없는 사람도 접속할 수 있습니다. 앱은 비밀번호로 보호되지만 **소스 코드는 공개**됩니다. 키·비밀번호는 코드가 아니라 Secret에만 들어갑니다.
+- 모든 이용자가 **같은 데이터**(브랜드 보관함·영상 목록·Runway 크레딧)를 공유합니다. 서로 모르는 사장님들에게 나눠줄 서비스라면 계정 분리 작업이 먼저 필요합니다.
+- 무료 Space는 **재시작·재배포 때 저장 데이터가 초기화**되고, 48시간 동안 아무도 접속하지 않으면 잠들었다가 다음 접속 때 1~2분 뒤 깨어납니다. 완성 영상은 바로 다운로드해 두세요. 데이터를 유지하려면 Space **Settings → Persistent storage**(유료)를 켜면 `/data`에 자동 저장됩니다.
+- 영상 합성은 CPU를 많이 씁니다. 여러 명이 동시에 제작하면 느려질 수 있습니다.
+
+## 직접 서버에 상시 배포 (Docker + 도메인)
 
 서버·도메인은 자동 구매하지 않습니다. 이 폴더에는 Dockerfile, compose.yml, Caddyfile이 준비되어 있습니다. Docker 빌드와 실제 외부 서버 배포는 별도 서버에서 확인해야 합니다.
 

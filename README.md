@@ -38,4 +38,6 @@ Supertonic 코드: MIT. 모델: BigScience Open RAIL-M. 모델 파일과 함께 
 
 [전체 사용 안내](FINAL_FEATURES.md) · [외부 접속 및 배포](DEPLOYMENT.md)
 
-외부 접속은 `python setup_public_preview.py` 최초 준비 후 `python public_preview.py`로 실행합니다. Quick Tunnel 주소는 임시이며 PC가 켜져 있어야 합니다. 클릭 집계는 실제 예약·매출이 아니며, 기본 상권 제안은 샘플입니다. 공공데이터 자동 수집과 고정 주소 호스팅은 별도 연결이 필요합니다.
+외부 접속은 `python setup_public_preview.py` 최초 준비 후 `python public_preview.py`로 실행합니다. Quick Tunnel 주소는 임시이며 PC가 켜져 있어야 합니다. 클릭 집계는 실제 예약·매출이 아니며, 기본 상권 제안은 샘플입니다. 공공데이터 자동 수집은 별도 연결이 필요합니다.
+
+다른 사람도 쓸 수 있는 고정 주소 배포는 [Hugging Face Spaces 자동 배포](DEPLOYMENT.md#전체-기능-무료-배포-hugging-face-spaces)를 참고하세요.
