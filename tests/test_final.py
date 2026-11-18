@@ -67,7 +67,7 @@ class MainFlow(unittest.TestCase):
             name = 'product.png'
             size = len(buffer.getvalue())
         photo = Photo(buffer.getvalue())
-        with patch.dict(os.environ, {'DONGNAE_APP_PASSWORD': ''}), \
+        with patch.dict(os.environ, {'DONGNAE_APP_PASSWORD': '', 'DONGNAE_REVIEW_MODE': '1'}), \
              patch('streamlit.file_uploader', return_value=[photo]), \
              patch('copy_service.generate_copy', return_value=COPY), \
              patch('runway_service.api_key_configured', return_value=True), \
@@ -81,13 +81,13 @@ class MainFlow(unittest.TestCase):
             self.widget(app, 'button', 'AI 광고 문구 생성').click().run()
             self.assertFalse(app.exception)
             self.widget(app, 'text_area', '내레이션').set_value('오늘 90% 할인').run()
-            render = self.widget(app, 'button', '장면 생성 → 합치기 → 최종 MP4 만들기')
+            render = self.widget(app, 'button', '광고 영상 만들기')
             self.assertTrue(render.disabled)
             self.assertTrue(self.widget(app, 'button', '내레이션 미리 듣기').disabled)
             generate.assert_not_called()
             self.widget(app, 'text_area', '내레이션').set_value(COPY['narration'])
-            self.widget(app, 'checkbox', 'TTS 내레이션 넣기').uncheck().run()
-            self.widget(app, 'button', '장면 생성 → 합치기 → 최종 MP4 만들기').click().run()
+            self.widget(app, 'checkbox', '내레이션 넣기').uncheck().run()
+            self.widget(app, 'button', '광고 영상 만들기').click().run()
             self.assertFalse(app.exception)
             self.assertEqual(generate.call_count, 1)
             merge.assert_called_once()
@@ -95,17 +95,28 @@ class MainFlow(unittest.TestCase):
             self.widget(app, 'button', '평가 저장').click().run()
             self.assertFalse(app.exception)
             self.assertEqual(len(app.session_state['evaluations']), 1)
-            self.widget(app, 'button', '장면 생성 → 합치기 → 최종 MP4 만들기').click().run()
+            self.widget(app, 'button', '광고 영상 만들기').click().run()
             self.assertEqual(generate.call_count, 1)  # editing does not spend scene credits again
             self.widget(app, 'text_input', '가게명').set_value('다른가게').run()
-            self.assertTrue(self.widget(app, 'button', '장면 생성 → 합치기 → 최종 MP4 만들기').disabled)
+            self.assertTrue(self.widget(app, 'button', '광고 영상 만들기').disabled)
+
+    def test_production_editor_has_no_experiment_controls(self):
+        with patch.dict(os.environ, {'DONGNAE_APP_PASSWORD': '', 'DONGNAE_REVIEW_MODE': ''}):
+            app = AppTest.from_file(str(ROOT/'app.py')).run(timeout=45)
+            self.assertFalse(app.exception)
+            self.assertFalse(app.radio)
+            text = '\n'.join(str(element.value) for element in app.markdown)
+            for phrase in ('개선 전', '개선 후', '실험 조건', '평가 기록'):
+                self.assertNotIn(phrase, text)
+            self.assertEqual(len(app.get('file_uploader')), 1)
+            self.assertTrue(self.widget(app, 'button', '광고 영상 만들기').disabled)
 
     def test_too_many_photos_blocked(self):
         with patch.dict(os.environ, {'DONGNAE_APP_PASSWORD': ''}), patch('streamlit.file_uploader', return_value=[SimpleNamespace(size=21*1024*1024)]*4):
             app = AppTest.from_file(str(ROOT/'app.py')).run(timeout=45)
             self.assertFalse(app.exception)
             self.assertTrue(app.error)
-            self.assertTrue(self.widget(app, 'button', '장면 생성 → 합치기 → 최종 MP4 만들기').disabled)
+            self.assertTrue(self.widget(app, 'button', '광고 영상 만들기').disabled)
 
 
 class VideoFlow(unittest.TestCase):

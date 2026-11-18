@@ -52,3 +52,8 @@ Windows / Python 3.11에서 `python -m unittest discover -s tests -v`: **12개 �
 
 
 Gemini 전환 후 실제 문구 생성·검증·온라인 TTS·최종 MP4 합성까지 후속 검증을 완료했습니다. OpenAI는 사용하지 않으며, Gemini 연결 검증 내역은 API_REVIEW.md의 마지막 절을 기준으로 확인하세요.
+
+
+## 최종 제작 화면 정리
+
+일반 화면에서 개선 전후·실험 조건·평가표·JSON 기록 다운로드를 제거했습니다. 보존 연출은 기본값이며 기술적 프롬프트와 모델 선택은 접힌 고급 설정으로 정리했습니다. HTML/CSS 표현을 studio_ui.py와 studio.css로 분리하고 가게 소개·사진·문구·완성의 4단계 편집과 오른쪽 미리보기로 구성했습니다. 검토 도구는 review_panel.py에 분리되어 DONGNAE_REVIEW_MODE=1일 때만 표시됩니다. 전체 19개 테스트 통과 (18.397초), 일반 화면에 실험 UI가 없는 검사와 기존 생성·검증·평가 저장·MP4 합성 검사를 포함합니다.
