@@ -1,13 +1,16 @@
 """Read credentials without logging or exporting them."""
 import os
 from pathlib import Path
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 
-load_dotenv(Path(__file__).resolve().parent / '.env')
+ENV_PATH = Path(__file__).resolve().parent / '.env'
 
 
 def setting(name, default=''):
     value = os.getenv(name)
+    if value:
+        return value.strip()
+    value = dotenv_values(ENV_PATH).get(name)
     if value:
         return value.strip()
     try:

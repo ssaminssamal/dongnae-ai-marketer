@@ -3,7 +3,7 @@ from unittest.mock import patch
 from types import SimpleNamespace
 import requests
 from runway_service import generate_image_to_video
-from copy_service import generate_copy
+from copy_service import generate_copy, validate_copy
 
 class ApiReliability(unittest.TestCase):
     def test_task_resume_after_download_failure_without_paid_recreation(self):
@@ -47,3 +47,23 @@ class ApiReliability(unittest.TestCase):
             self.assertNotIn('private',str(error.exception))
             post.side_effect=requests.Timeout('private')
             with self.assertRaisesRegex(RuntimeError,'초과'): generate_copy({})
+
+    def test_partial_price_or_negated_claim_is_not_approved(self):
+        self.assertFalse(validate_copy({'detail':'500원'}, {'price':'1500원'})['passed'])
+        self.assertFalse(validate_copy({'detail':'무료'}, {'discount':'무료 아님'})['passed'])
+        self.assertFalse(validate_copy({'detail':'0% 할인'}, {'discount':'10% 할인'})['passed'])
+        self.assertTrue(validate_copy({'detail':'아메리카노 3,000원'}, {'description':'고소한 커피. 아메리카노 3,000원.'})['passed'])
+
+    def test_local_key_update_is_visible_without_process_restart(self):
+        import os
+        import tempfile
+        from pathlib import Path
+        import secrets_config
+        with tempfile.TemporaryDirectory() as folder:
+            env_file = Path(folder)/'.env'
+            with patch('secrets_config.ENV_PATH', env_file), patch.dict(os.environ, {'GEMINI_API_KEY': ''}):
+                env_file.write_text('GEMINI_API_KEY=first-test-value', encoding='utf-8')
+                self.assertEqual(secrets_config.setting('GEMINI_API_KEY'), 'first-test-value')
+                env_file.write_text('GEMINI_API_KEY=second-test-value', encoding='utf-8')
+                self.assertEqual(secrets_config.setting('GEMINI_API_KEY'), 'second-test-value')
+                self.assertEqual(os.environ['GEMINI_API_KEY'], '')

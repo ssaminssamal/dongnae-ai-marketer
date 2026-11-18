@@ -18,14 +18,15 @@ def validate_copy(copy, facts):
 
     Supported paraphrases may be blocked. This is not a proof of all assertions.
     """
-    sources = [normalize(str(value)) for value in facts.values() if str(value).strip()]
+    sources = {normalize(sentence.strip()) for value in facts.values()
+        for sentence in re.split(r'[!?\n]|(?<!\d)\.|\.(?!\d)', str(value)) if sentence.strip()}
     issues = []
     for field in FIELDS:
         # Keep decimal/grouped numbers together; splitting 15.000 into fragments
         # could incorrectly approve a different price by substring matching.
         for sentence in re.split(r'[!?\n]|(?<!\d)\.|\.(?!\d)', str(copy.get(field, ''))):
             claim = sentence.strip()
-            if claim and CLAIMS.search(claim) and not any(normalize(claim) in source for source in sources):
+            if claim and CLAIMS.search(claim) and normalize(claim) not in sources:
                 issues.append({'field': field, 'claim': claim, 'reason': '사장님 입력에서 동일한 표현을 확인할 수 없음'})
     return {'passed': not issues, 'issues': issues}
 
@@ -41,7 +42,12 @@ def generate_copy(facts):
         '입력에 없는 사실, 가격, 할인, 효능, 수치, 원산지, 인증, 보장을 만들지 마세요. '
         '객관적 주장은 입력 문장을 글자 그대로 한 문장으로 인용하거나 생략하세요. '
         'headline, detail, cta, brand, narration 다섯 문자열을 반환하세요. '
-        '문구는 짧게, narration은 200자 이내로 작성하세요.')
+        '문구는 짧게, narration은 200자 이내로 작성하세요. '
+        '중요: 숫자·가격·할인·효능 등 객관적 주장은 detail 필드에만 넣으세요. '
+        'detail은 해당 입력 문장 하나를 글자 그대로 복사하거나, 수치 없는 소개로 작성하세요. '
+        'headline, cta, narration에는 숫자·금액·할인·효능·인증·최고/최저 등 객관적 주장을 쓰지 마세요. '
+        'narration은 상품명과 수치 없는 특징으로만 자연스럽게 작성하세요. '
+        'brand는 입력 가게명을 글자 그대로 사용하세요.')
     try:
         response = requests.post(
             f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',

@@ -49,3 +49,6 @@ Windows / Python 3.11에서 `python -m unittest discover -s tests -v`: **12개 �
 
 
 후속 API 안정성 보강과 실제 생성 검증 결과는 [API_REVIEW.md](API_REVIEW.md)를 확인하세요. 앞의 미검증 범위 중 Runway 실생성·온라인 TTS·최종 합성은 후속 검증을 완료했으며, OpenAI 정상 생성은 API 크레딧 소진으로 대기 중입니다.
+
+
+Gemini 전환 후 실제 문구 생성·검증·온라인 TTS·최종 MP4 합성까지 후속 검증을 완료했습니다. OpenAI는 사용하지 않으며, Gemini 연결 검증 내역은 API_REVIEW.md의 마지막 절을 기준으로 확인하세요.
