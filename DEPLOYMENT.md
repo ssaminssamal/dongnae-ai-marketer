@@ -7,9 +7,9 @@
 - 앱 설정의 Secrets에 아래 키를 입력합니다. 실제 값은 저장소에 올리지 마세요.
 
 ```toml
-OPENAI_API_KEY = "your-key"
+GEMINI_API_KEY = "your-key"
 RUNWAYML_API_SECRET = "your-key"
-OPENAI_COPY_MODEL = "gpt-4o-mini"
+GEMINI_COPY_MODEL = "gemini-3.5-flash-lite"
 DONGNAE_TTS_BACKEND = "gtts"
 ```
 

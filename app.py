@@ -67,7 +67,7 @@ with st.sidebar:
     duration = st.select_slider('장면 길이', [5, 10], value=5)
     st.caption('9:16 세로 영상 · MP4 · 24 fps')
     st.caption('영상 연결: ' + ('설정됨' if api_key_configured() else 'Runway 키 필요'))
-    st.caption('문구 연결: ' + ('설정됨' if setting('OPENAI_API_KEY') else 'OpenAI 키 필요'))
+    st.caption('문구 연결: ' + ('설정됨' if setting('GEMINI_API_KEY') else 'Gemini 키 필요'))
     st.caption('키는 .env 또는 Streamlit Secrets에서 설정합니다.')
 
 st.header('1. 가게와 홍보 정보')
@@ -108,6 +108,7 @@ if photos:
         column.image(photo['bytes'], caption=photo['name'], use_container_width=True)
 
 st.header('3. AI 광고 문구 생성과 검증')
+st.caption('문구 생성: Google Gemini · 입력한 가게 정보가 Google로 전송됩니다.')
 if st.button('AI 광고 문구 생성', disabled=not ready_facts):
     try:
         with st.spinner('입력한 사실을 바탕으로 광고 문구를 생성합니다…'):

@@ -32,15 +32,15 @@ class ApiReliability(unittest.TestCase):
             client.image_to_video.create.assert_not_called()
 
     def test_invalid_json_shape_and_incomplete_copy_fail_closed(self):
-        with patch('copy_service.setting',return_value='private'), patch('copy_service.requests.post') as post:
+        with patch('copy_service.setting',side_effect=lambda name, default='': 'gemini-3.5-flash-lite' if name == 'GEMINI_COPY_MODEL' else 'private'), patch('copy_service.requests.post') as post:
             for message in ('[]','null','"text"'):
-                post.return_value.json.return_value={'choices':[{'message':{'content':message}}]}
+                post.return_value.json.return_value={'candidates':[{'finishReason':'STOP','content':{'parts':[{'text':message}]}}]}
                 with self.assertRaises(RuntimeError): generate_copy({})
-            post.return_value.json.return_value={'choices':[{'finish_reason':'length','message':{'content':'{}'}}]}
+            post.return_value.json.return_value={'candidates':[{'finishReason':'MAX_TOKENS','content':{'parts':[{'text':'{}'}]}}]}
             with self.assertRaises(RuntimeError): generate_copy({})
 
     def test_auth_and_timeout_errors_are_safe(self):
-        with patch('copy_service.setting',return_value='private'),patch('copy_service.requests.post') as post:
+        with patch('copy_service.setting',side_effect=lambda name, default='': 'gemini-3.5-flash-lite' if name == 'GEMINI_COPY_MODEL' else 'private'),patch('copy_service.requests.post') as post:
             response=requests.Response(); response.status_code=401
             post.side_effect=requests.HTTPError('private',response=response)
             with self.assertRaisesRegex(RuntimeError,'인증') as error: generate_copy({})

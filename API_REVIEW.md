@@ -34,3 +34,10 @@
 - 문구 생성 성공을 포함한 전체 실연동 완료 선언은 OpenAI 크레딧 문제 해결 후 가능합니다.
 
 오류 분류 참고: [OpenAI 공식 API 오류 안내](https://developers.openai.com/api/docs/guides/error-codes).
+
+
+## 문구 API 교체
+
+OpenAI 크레딧 의존을 제거하고 Google Gemini로 문구 API를 교체했습니다. 기본 모델은 `gemini-3.5-flash-lite`이며 `GEMINI_API_KEY`와 `GEMINI_COPY_MODEL`을 사용합니다. 응답 스키마와 STOP 완료 여부를 확인한 뒤 기존 주장 검증을 수행합니다. 무료 구간과 한도는 Google 계정 정책에 따릅니다. Gemini 키는 아직 없어 실제 Gemini 생성은 미검증입니다.
+
+공식 참고: [Gemini 가격](https://ai.google.dev/gemini-api/docs/pricing), [콘텐츠 생성 API](https://ai.google.dev/api/generate-content).

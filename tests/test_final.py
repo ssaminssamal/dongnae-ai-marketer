@@ -39,11 +39,11 @@ class CopySafety(unittest.TestCase):
         with patch('copy_service.setting', return_value=''):
             with self.assertRaises(RuntimeError):
                 generate_copy(FACTS)
-        with patch('copy_service.setting', return_value='secret-test-value'), patch('copy_service.requests.post') as post:
-            post.return_value.json.return_value = {'choices': [{'message': {'content': json.dumps(COPY)}}]}
+        with patch('copy_service.setting', side_effect=lambda name, default='': 'gemini-3.5-flash-lite' if name == 'GEMINI_COPY_MODEL' else 'secret-test-value'), patch('copy_service.requests.post') as post:
+            post.return_value.json.return_value = {'candidates': [{'finishReason': 'STOP', 'content': {'parts': [{'text': json.dumps(COPY)}]}}]}
             self.assertEqual(generate_copy(FACTS), COPY)
-            self.assertIn('Authorization', post.call_args.kwargs['headers'])
-            post.return_value.json.return_value = {'choices': [{'message': {'content': '{}'}}]}
+            self.assertIn('x-goog-api-key', post.call_args.kwargs['headers'])
+            post.return_value.json.return_value = {'candidates': [{'finishReason': 'STOP', 'content': {'parts': [{'text': '{}'}]}}]}
             with self.assertRaises(RuntimeError) as error:
                 generate_copy(FACTS)
             self.assertNotIn('secret-test-value', str(error.exception))

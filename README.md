@@ -13,7 +13,7 @@ python -m streamlit run app.py
 
 Windows에서는 `run_vscode.bat` 또는 `python launch_app.py`도 사용할 수 있습니다. 기본 앱 주소는 http://localhost:8503 입니다. `launch_app.py`는 기존 모바일 접속 화면을 제공하는 선택 실행기입니다.
 
-`.env.example`을 `.env`로 복사하고 `OPENAI_API_KEY`(문구), `RUNWAYML_API_SECRET`(영상)을 설정하세요. 기본 문구 모델은 `gpt-4o-mini`이며 `OPENAI_COPY_MODEL`로 바꿀 수 있습니다. 키는 화면·다운로드·Git에 포함하지 마세요. API 호출에는 각 서비스 비용이 발생합니다.
+`.env.example`을 `.env`로 복사하고 `GEMINI_API_KEY`(문구), `RUNWAYML_API_SECRET`(영상)을 설정하세요. 기본 문구 모델은 `gemini-3.5-flash-lite`이며 `GEMINI_COPY_MODEL`로 바꿀 수 있습니다. 키는 화면·다운로드·Git에 포함하지 마세요. API 호출에는 각 서비스 비용이 발생합니다.
 
 ## 제작 흐름
 
