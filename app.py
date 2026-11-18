@@ -180,7 +180,10 @@ if st.button('장면 생성 → 합치기 → 최종 MP4 만들기', type='prima
             if i < len(scenes):
                 continue
             progress.progress(10 + int(60*i/len(photos)), text=f'장면 {i+1}/{len(photos)} 생성 중…')
-            result = generate_image_to_video(image_bytes=photo['bytes'], prompt=prompts[i], model=model, duration=duration)
+            pending = st.session_state.setdefault('pending_tasks', {})
+            task_key = digest((signature, i))
+            result = generate_image_to_video(image_bytes=photo['bytes'], prompt=prompts[i], model=model, duration=duration,
+                task_state=pending.setdefault(task_key, {}))
             if not result.ok:
                 raise RuntimeError(f'장면 {i+1}: {result.message}')
             scenes.append(result.video_bytes)
@@ -198,6 +201,8 @@ if st.button('장면 생성 → 합치기 → 최종 MP4 만들기', type='prima
         st.session_state['completed'] = dict(bytes=data, render_id=render_id, record=record)
         progress.progress(100, text='완성되었습니다.')
         st.rerun()
+    except RuntimeError as error:
+        st.error(str(error))
     except Exception:
         st.error('제작에 실패했습니다. 연결·영상 크레딧·한글 폰트·음성 설정을 확인해 주세요. 완성된 장면은 같은 설정으로 재시도할 때 재사용합니다.')
 
