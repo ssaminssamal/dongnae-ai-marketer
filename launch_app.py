@@ -14,7 +14,6 @@ import secrets
 import socket
 import subprocess
 import time
-import re
 import webbrowser
 from urllib.parse import urlsplit
 from aiohttp import web, ClientSession, ClientTimeout, WSMsgType
@@ -43,7 +42,7 @@ def create_app(upstream, password='', root=ROOT):
         return not origin or urlsplit(origin).netloc==request.host
     @web.middleware
     async def guard(request,handler):
-        public=request.path in ('/healthz','/login','/manifest.webmanifest','/sw.js','/offline.html') or request.path.startswith('/pwa/') or bool(re.fullmatch(r'/c/[A-Za-z0-9_-]{20,80}(?:/(?:booking|map|coupon))?',request.path))
+        public=request.path in ('/healthz','/login','/manifest.webmanifest','/sw.js','/offline.html') or request.path.startswith('/pwa/')
         if not public and not authenticated(request):
             if request.headers.get('Upgrade','').lower()=='websocket':
                 return web.Response(status=401,text='Login required')
@@ -147,8 +146,6 @@ def create_app(upstream, password='', root=ROOT):
     for name in ('manifest.webmanifest','sw.js','offline.html'):
         app.router.add_get('/'+name,static_root)
     app.router.add_static('/pwa/',root/'pwa',show_index=False,follow_symlinks=False)
-    from campaign_web import register_campaign_routes
-    register_campaign_routes(app)
     app.router.add_route('*','/studio/{tail:.*}',proxy)
     return app
 

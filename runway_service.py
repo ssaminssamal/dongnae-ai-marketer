@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import os
 import time
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Optional
 
 import requests
-from dotenv import load_dotenv
+from secrets_config import setting
 from runwayml import RunwayML, TaskFailedError
 
 from image_tools import normalize_to_portrait, jpeg_bytes_to_data_uri
@@ -18,7 +16,7 @@ from config import RUNWAY_MODELS, OUTPUT_RATIO
 # 환경 변수 로드
 # =========================================================
 
-load_dotenv()
+
 
 
 # =========================================================
@@ -40,7 +38,7 @@ class GenerationResult:
 # =========================================================
 
 def get_api_key() -> str:
-    return os.getenv("RUNWAYML_API_SECRET", "").strip()
+    return setting("RUNWAYML_API_SECRET")
 
 
 def api_key_configured() -> bool:
@@ -127,7 +125,7 @@ def _friendly_error(exc: Exception) -> tuple[str, str]:
         return (
             "BAD_REQUEST",
             "Runway가 입력을 거부했습니다. "
-            f"이미지 또는 프롬프트를 확인하세요.\n\n{text[:400]}"
+            "이미지 또는 프롬프트를 확인하세요."
         )
 
     # 서버 오류
@@ -145,7 +143,7 @@ def _friendly_error(exc: Exception) -> tuple[str, str]:
 
     return (
         "UNKNOWN",
-        text[:500]
+        "영상 서비스 연결에 실패했습니다. 설정을 확인한 뒤 다시 시도해 주세요."
     )
 
 
@@ -335,7 +333,6 @@ def generate_image_to_video(
     # 실제 생성
     # =====================================================
 
-    last_failure = None
 
     for attempt in range(
         1,
@@ -421,7 +418,6 @@ def generate_image_to_video(
                 exc
             )
 
-            last_failure = failure_text
 
             # ---------------------------------------------
             # INTERNAL.BAD_OUTPUT.CODE01
@@ -447,7 +443,7 @@ def generate_image_to_video(
                 error_code="TASK_FAILED",
                 message=(
                     "Runway 영상 생성 작업이 실패했습니다.\n\n"
-                    f"{failure_text}"
+                    "서비스에서 작업을 완료하지 못했습니다."
                 ),
                 attempts=attempt
             )
@@ -475,46 +471,7 @@ def generate_image_to_video(
         error_code="RETRY_FAILED",
         message=(
             "Runway 영상 생성에 반복적으로 실패했습니다.\n\n"
-            f"{last_failure or '알 수 없는 오류'}"
+            "잠시 후 다시 시도하세요."
         ),
         attempts=max_attempts
     )
-
-
-# =========================================================
-# 영상 저장
-# =========================================================
-
-def save_video(
-    video_bytes: bytes,
-    directory: str = "outputs"
-) -> str:
-
-    from datetime import datetime
-
-    if not video_bytes:
-        raise ValueError(
-            "저장할 영상 데이터가 없습니다."
-        )
-
-    output_dir = Path(directory)
-
-    output_dir.mkdir(
-        parents=True,
-        exist_ok=True
-    )
-
-    timestamp = datetime.now().strftime(
-        "%Y%m%d_%H%M%S"
-    )
-
-    path = (
-        output_dir
-        / f"ad_{timestamp}.mp4"
-    )
-
-    path.write_bytes(
-        video_bytes
-    )
-
-    return str(path)

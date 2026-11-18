@@ -10,7 +10,6 @@ from typing import List, Optional, Tuple
 
 import imageio_ffmpeg
 from PIL import Image, ImageDraw, ImageFont
-from PIL import ImageColor
 from moviepy import VideoFileClip, AudioFileClip, ImageClip, CompositeVideoClip, concatenate_videoclips
 from tts_service import generate_tts, remove_tts_file
 
@@ -45,7 +44,7 @@ def _wrap_text(text, draw, font, max_width):
     return '\n'.join(lines)
 
 
-def _create_caption_image(text, video_size, font_size=46, brand_color=None):
+def _create_caption_image(text, video_size, font_size=46):
     width, height = video_size
     image = Image.new('RGBA', (width, height))
     draw = ImageDraw.Draw(image)
@@ -67,8 +66,6 @@ def _create_caption_image(text, video_size, font_size=46, brand_color=None):
     top = bottom - th
     draw.rounded_rectangle((x-padding, top-padding, x+tw+padding, bottom+padding),
                            radius=padding, fill=(0, 0, 0, 180))
-    if brand_color:
-        draw.line((x,top-padding+3,x+tw,top-padding+3),fill=ImageColor.getrgb(brand_color)+(255,),width=3)
     draw.multiline_text((x-bbox[0], top-bbox[1]), wrapped, font=font,
                         fill='white', spacing=8, align='center')
     with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp:
@@ -81,19 +78,10 @@ def merge_video_bytes(video_bytes_list: List[bytes], output_dir: str = 'outputs'
                       final_captions: Optional[List[str]] = None,
                       narration_text: Optional[str] = None,
                       narration_audio: Optional[bytes] = None,
-                      bgm_audio: Optional[bytes] = None,
-                      bgm_volume: float = .18,
-                      duck_music: bool = True,
-                      brand_logo: Optional[bytes] = None,
-                      brand_color: Optional[str] = None,
-                      campaign_qr: Optional[bytes] = None) -> Tuple[bytes, str]:
+                      ) -> Tuple[bytes, str]:
     """Join scenes in order; captions span the ad. Never cut off narration."""
     if not video_bytes_list or any(not data for data in video_bytes_list):
         raise ValueError('합칠 영상이 없거나 비어 있는 장면이 있습니다.')
-    if not 0 <= bgm_volume <= 1:
-        raise ValueError('배경음악 음량은 0~1 사이여야 합니다.')
-    if brand_color: ImageColor.getrgb(brand_color)
-    has_music = bool(bgm_audio) and bgm_volume > 0
     folder = Path(output_dir).resolve()
     folder.mkdir(parents=True, exist_ok=True)
     final_path = folder / f'final_ad_{datetime.now():%Y%m%d_%H%M%S_%f}.mp4'
@@ -107,7 +95,7 @@ def merge_video_bytes(video_bytes_list: List[bytes], output_dir: str = 'outputs'
                 path = temp / f'scene_{i}.mp4'
                 path.write_bytes(data)
                 clip = resources.enter_context(VideoFileClip(str(path)))
-                clips.append(clip.without_audio() if narration_text or narration_audio or has_music else clip)
+                clips.append(clip.without_audio() if narration_text or narration_audio else clip)
             joined = concatenate_videoclips(clips, method='compose')
             resources.callback(joined.close)
             audio_path = None
@@ -129,26 +117,17 @@ def merge_video_bytes(video_bytes_list: List[bytes], output_dir: str = 'outputs'
             layers = [joined]
             for i, text in enumerate(captions):
                 image = _create_caption_image(text, (int(joined.w), int(joined.h)),
-                                              54 if i == len(captions)-1 else 44, brand_color)
+                                              54 if i == len(captions)-1 else 44)
                 images.append(image)
                 caption = ImageClip(image).with_start(i * joined.duration / len(captions)).with_duration(
                     joined.duration / len(captions))
                 resources.callback(caption.close)
                 layers.append(caption)
-            for label,data in [('logo',brand_logo),('qr',campaign_qr)]:
-                if not data: continue
-                asset=temp/f'{label}.png'; asset.write_bytes(data)
-                overlay=ImageClip(str(asset)).resized(width=max(40,int(joined.w*(.18 if label=='logo' else .32))))
-                if label=='logo' and overlay.h>joined.h*.14: overlay=overlay.resized(height=int(joined.h*.14))
-                overlay=overlay.with_position((int(joined.w-overlay.w-joined.w*.05),int(joined.h*(.06 if label=='logo' else .48))))
-                if label=='qr': overlay=overlay.with_start(max(0,joined.duration-3)).with_duration(min(3,joined.duration))
-                else: overlay=overlay.with_duration(joined.duration)
-                resources.callback(overlay.close); layers.append(overlay)
             result = CompositeVideoClip(layers, size=joined.size) if len(layers)>1 else joined
             if len(layers)>1:
                 resources.callback(result.close)
             silent_path = temp / 'picture.mp4'
-            external_audio = bool(audio_path) or has_music
+            external_audio = bool(audio_path)
             result.write_videofile(str(silent_path if external_audio else final_path),
                                    codec='libx264', fps=24, audio=not external_audio,
                                    audio_codec='aac', temp_audiofile=str(temp / 'source.m4a'),
@@ -159,27 +138,13 @@ def merge_video_bytes(video_bytes_list: List[bytes], output_dir: str = 'outputs'
                 if audio_path:
                     command += ['-i', str(audio_path)]
                     filters += [f'[1:a]loudnorm=I=-16:TP=-1.5:LRA=11,apad,atrim=duration={result.duration},asetpts=PTS-STARTPTS[voice]']
-                if has_music:
-                    music_path = temp/'music.audio'
-                    music_path.write_bytes(bgm_audio)
-                    command += ['-stream_loop','-1','-i',str(music_path)]
-                    music_index = 2 if audio_path else 1
-                    filters += [f'[{music_index}:a]volume={bgm_volume},apad,atrim=duration={result.duration},asetpts=PTS-STARTPTS,afade=t=in:d=0.35,afade=t=out:st={max(0,result.duration-.7)}:d=0.7[music]']
-                if audio_path and has_music:
-                    if duck_music:
-                        filters += ['[voice]asplit=2[spoken][side]',
-                            '[music][side]sidechaincompress=threshold=0.025:ratio=6:attack=20:release=450[ducked]',
-                            '[spoken][ducked]amix=inputs=2:normalize=0:duration=longest,alimiter=limit=0.95:level=false[out]']
-                    else:
-                        filters += ['[voice][music]amix=inputs=2:normalize=0:duration=longest,alimiter=limit=0.95:level=false[out]']
-                else:
-                    filters += [('[voice]' if audio_path else '[music]')+'alimiter=limit=0.95:level=false[out]']
+                filters += ['[voice]alimiter=limit=0.95:level=false[out]']
                 command += ['-filter_complex',';'.join(filters),'-map','0:v:0','-map','[out]',
                             '-c:v','copy','-c:a','aac','-b:a','192k','-ar','44100',
                             '-t',str(result.duration),'-movflags','+faststart',str(final_path)]
                 process = subprocess.run(command, capture_output=True)
                 if process.returncode:
-                    raise RuntimeError('음성·배경음악 결합 실패: ' + process.stderr.decode('utf-8', 'replace')[-1500:])
+                    raise RuntimeError('음성 결합에 실패했습니다.')
             with VideoFileClip(str(final_path)) as check:
                 if abs(check.duration - result.duration) > .2:
                     raise RuntimeError('최종 영상 길이 검증 실패')

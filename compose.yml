@@ -4,11 +4,12 @@ services:
     restart: unless-stopped
     environment:
       DONGNAE_APP_PASSWORD: ${DONGNAE_APP_PASSWORD:?Set a password with at least 12 characters}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_COPY_MODEL: ${OPENAI_COPY_MODEL:-gpt-4o-mini}
       RUNWAYML_API_SECRET: ${RUNWAYML_API_SECRET:-}
     expose: ["8503"]
     volumes:
       - studio_outputs:/app/outputs
-      - studio_data:/app/.data
   https:
     image: caddy:2
     restart: unless-stopped
@@ -22,6 +23,5 @@ services:
     depends_on: [studio]
 volumes:
   studio_outputs:
-  studio_data:
   caddy_data:
   caddy_config:

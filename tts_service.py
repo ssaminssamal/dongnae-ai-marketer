@@ -1,12 +1,12 @@
 """Use installed local voices, or lightweight online speech on hosted demos."""
-import os
 import tempfile
 from pathlib import Path
+from secrets_config import setting
 
 from local_tts import remove_tts_file
 
-_models = Path(os.getenv('DONGNAE_TTS_MODEL_DIR', str(Path(__file__).parent / 'models' / 'supertonic3')))
-TTS_BACKEND = os.getenv('DONGNAE_TTS_BACKEND', 'local' if _models.is_dir() else 'gtts').lower()
+_models = Path(setting('DONGNAE_TTS_MODEL_DIR', str(Path(__file__).resolve().parent / 'models' / 'supertonic3')))
+TTS_BACKEND = setting('DONGNAE_TTS_BACKEND', 'local' if _models.is_dir() else 'gtts').lower()
 if TTS_BACKEND not in ('local', 'gtts'):
     raise ValueError('DONGNAE_TTS_BACKEND must be local or gtts')
 

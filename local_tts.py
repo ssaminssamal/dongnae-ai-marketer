@@ -1,7 +1,7 @@
 """Free, on-device Korean speech. No cloud synthesis or API key."""
 from functools import lru_cache
 from pathlib import Path
-import os
+from secrets_config import setting
 import tempfile
 import threading
 
@@ -13,7 +13,7 @@ _lock = threading.RLock()
 @lru_cache(maxsize=1)
 def _engine():
     from supertonic import TTS
-    model_dir = Path(os.getenv('DONGNAE_TTS_MODEL_DIR', str(Path(__file__).parent/'models'/'supertonic3')))
+    model_dir = Path(setting('DONGNAE_TTS_MODEL_DIR', str(Path(__file__).resolve().parent/'models'/'supertonic3')))
     # Install models explicitly through setup_free_tts.py; never download during an ad request.
     return TTS(model='supertonic-3', model_dir=model_dir, auto_download=False,
                intra_op_num_threads=4, inter_op_num_threads=1)
